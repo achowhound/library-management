@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import DueReminderBanner from '../components/DueReminderBanner';
 
 function BookSearch() {
   const navigate = useNavigate();
@@ -215,6 +216,8 @@ function BookSearch() {
       </header>
 
       <main className="max-w-7xl mx-auto px-4 py-8">
+        <DueReminderBanner />
+
         <div className="bg-gradient-to-r from-blue-500 to-purple-600 rounded-lg shadow-lg p-6 mb-8 text-white">
           <h2 className="text-2xl font-bold mb-2">{getGreeting()}，{user?.name || '读者'}！</h2>
           <p className="opacity-90">欢迎回来，在这里您可以搜索和借阅图书。</p>
