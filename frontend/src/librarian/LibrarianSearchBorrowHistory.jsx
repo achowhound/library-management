@@ -1,6 +1,6 @@
 // LibrarianSearchBorrowHistory.jsx
 import { useState } from 'react'
-
+import IsbnBarcode from '../components/IsbnBarcode'
 export default function LibrarianSearchBorrowHistory({ onBack }) {
   const [searchType, setSearchType] = useState('username') // 'username' 或 'studentId'
   const [searchValue, setSearchValue] = useState('')
