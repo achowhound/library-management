@@ -1,113 +1,35 @@
-import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useState } from 'react';
 
 function AdminDashboard() {
-  const navigate = useNavigate();
-  const [adminUser, setAdminUser] = useState({});
-
-  useEffect(() => {
-    const user = JSON.parse(localStorage.getItem('user') || '{}');
-    setAdminUser(user);
-  }, []);
-
-  const handleLogout = () => {
-    localStorage.removeItem('adminToken');
-    localStorage.removeItem('user');
-    localStorage.removeItem('token');
-    localStorage.removeItem('librarianToken');
-    localStorage.removeItem('librarianInfo');
-    navigate('/login');
-  };
-
-  const getGreeting = () => {
-    const hour = new Date().getHours();
-    if (hour < 12) return '早上好';
-    if (hour < 18) return '下午好';
-    return '晚上好';
-  };
-
-  const menuItems = [
-    {
-      title: '系统日志',
-      description: '查看系统操作日志',
-      href: '/admin-logs',
-      icon: '📋'
-    },
-    {
-      title: '用户管理',
-      description: '管理用户和权限',
-      href: '/admin/users',
-      icon: '👥'
-    },
-    {
-      title: '公告查看',
-      description: '查看所有公告',
-      href: '/announcements',
-      icon: '📢'
-    },
-    {
-      title: '公告管理',
-      description: '发布和管理公告',
-      href: '/admin/announcements',
-      icon: '📝'
-    },
-    {
-    title: '系统配置',
-    description: '配置借阅规则、逾期罚款等全局参数',
-    href: '/admin/config',
-    icon: '⚙️'
-    }
-
-  ];
+  const adminUser = JSON.parse(localStorage.getItem('user') || '{}');
 
   return (
-    <div className="min-h-screen bg-gray-100">
-      <header className="bg-white shadow-md sticky top-0 z-10">
-        <div className="max-w-7xl mx-auto px-4 py-4 flex justify-between items-center">
-          <div className="flex items-center gap-3">
-            <div className="text-2xl">📚</div>
-            <h1 className="text-xl font-bold text-gray-800">图书馆管理系统</h1>
-            <span className="bg-purple-100 text-purple-600 text-xs px-2 py-1 rounded-full">管理员</span>
-          </div>
-          <div className="flex items-center gap-4">
-            <div className="text-right">
-              <p className="text-sm text-gray-500">{getGreeting()}</p>
-              <p className="font-semibold text-gray-800">{adminUser.name || '管理员'}</p>
-              <p className="text-xs text-gray-400">{adminUser.email || ''}</p>
-            </div>
-            <button
-              onClick={handleLogout}
-              className="bg-red-500 text-white px-4 py-2 rounded-lg hover:bg-red-600 transition text-sm"
-            >
-              退出登录
-            </button>
-          </div>
-        </div>
-      </header>
+    <div style={{ maxWidth: '1200px', margin: '0 auto', padding: '20px' }}>
+      <h1 style={{ marginBottom: '20px' }}>超级管理员控制台</h1>
+      <p style={{ marginBottom: '30px', color: '#666' }}>欢迎，{adminUser.name || adminUser.email}</p>
 
-      <main className="max-w-7xl mx-auto px-4 py-8">
-        <div className="bg-gradient-to-r from-purple-500 to-pink-600 rounded-lg shadow-lg p-6 mb-8 text-white">
-          <h2 className="text-2xl font-bold mb-2">{getGreeting()}，{adminUser.name || '管理员'}！</h2>
-          <p className="opacity-90">欢迎回来，这里是系统管理控制台。</p>
-        </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '20px' }}>
+        <a href="/admin-logs" style={{ display: 'block', padding: '30px', background: '#3b82f6', color: 'white', borderRadius: '8px', textDecoration: 'none', textAlign: 'center' }}>
+          <h3 style={{ margin: 0, fontSize: '20px' }}>系统日志</h3>
+          <p style={{ margin: '10px 0 0', opacity: 0.9 }}>查看系统操作日志</p>
+        </a>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-          {menuItems.map((item, index) => (
-            <a
-              key={index}
-              href={item.href}
-              className="bg-white p-6 rounded-lg shadow-lg hover:shadow-xl transition cursor-pointer block"
-            >
-              <div className="text-4xl mb-4">{item.icon}</div>
-              <h2 className="text-xl font-bold mb-2">{item.title}</h2>
-              <p className="text-gray-500 text-sm mb-4">{item.description}</p>
-              <button className="w-full bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600 transition">
-                进入 →
-              </button>
-            </a>
-          ))}
-        </div>
-      </main>
+        <a href="/announcements" style={{ display: 'block', padding: '30px', background: '#10b981', color: 'white', borderRadius: '8px', textDecoration: 'none', textAlign: 'center' }}>
+          <h3 style={{ margin: 0, fontSize: '20px' }}>公告查看</h3>
+          <p style={{ margin: '10px 0 0', opacity: 0.9 }}>查看所有公告</p>
+        </a>
+
+        <a href="/admin/announcements" style={{ display: 'block', padding: '30px', background: '#f59e0b', color: 'white', borderRadius: '8px', textDecoration: 'none', textAlign: 'center' }}>
+          <h3 style={{ margin: 0, fontSize: '20px' }}>公告管理</h3>
+          <p style={{ margin: '10px 0 0', opacity: 0.9 }}>发布和管理公告</p>
+        </a>
+      </div>
+
+      <div style={{ marginTop: '40px' }}>
+        <button onClick={() => { localStorage.removeItem('adminToken'); localStorage.removeItem('user'); localStorage.removeItem('token'); window.location.href = '/login'; }} style={{ padding: '10px 20px', background: '#ef4444', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>
+          退出登录
+        </button>
+      </div>
     </div>
   );
 }

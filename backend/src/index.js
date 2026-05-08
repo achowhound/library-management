@@ -12,8 +12,8 @@ const authRouter = require('./routes/auth');   // 鉴权路由
 const readersRouter = require('./routes/readers');
 const readerBorrowRouter = require('./routes/reader-borrow');
 const announcementsRouter = require('./routes/announcements');
-const messagesRouter = require('./routes/messages');
-const ratingsRouter = require('./routes/ratings');
+const librarianSearchBorrowHistory = require('./routes/LibrarianSearchBorrowHistory'); 
+const statisticsRoutes = require('./routes/statistics');
 
 const app = express();
 const port = Number(process.env.PORT) || 3001;
@@ -34,11 +34,11 @@ app.use('/api/books', booksRouter);
 app.use('/api/logs', logsRouter);
 app.use('/api/loans', loansRouter);         // 你的借阅历史入口
 app.use('/api/announcements', announcementsRouter);
-app.use('/api/messages', messagesRouter);   // 消息系统路由
-app.use('/api/ratings', ratingsRouter);      // 评分评价路由
 app.use('/readers', readersRouter);
 app.use('/loans', loansRouter);
 app.use('/api/reader', readerBorrowRouter);
+app.use('/api/librarian/search-history', librarianSearchBorrowHistory); 
+app.use('/api/statistics', statisticsRoutes); 
 
 // 兼容旧路径（保留队友的设置）
 app.use('/books', booksRouter);

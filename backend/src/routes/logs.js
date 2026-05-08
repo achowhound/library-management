@@ -3,7 +3,7 @@ const prisma = require('../lib/prisma');
 
 const router = express.Router();
 
-// 获取系统日志列表 - 暂时去掉认证
+// 获取系统日志列表
 router.get('/', async (req, res, next) => {
   try {
     const logs = await prisma.auditLog.findMany({

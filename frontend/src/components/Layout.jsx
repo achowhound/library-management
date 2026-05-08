@@ -1,6 +1,6 @@
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { BookOpen, Megaphone, Settings, LogOut, Menu, X, MessageSquare } from 'lucide-react';
+import { BookOpen, Megaphone, Settings, LogOut, Menu, X } from 'lucide-react';
 import { useState } from 'react';
 
 export default function Layout() {
@@ -16,7 +16,6 @@ export default function Layout() {
 
   const navLinks = [
     { to: '/announcements', label: '公告列表', icon: Megaphone },
-    { to: '/messages', label: '消息系统', icon: MessageSquare },
     ...(isAdmin ? [{ to: '/admin/announcements', label: '公告管理', icon: Settings }] : []),
   ];
 
