@@ -14,12 +14,14 @@ function MyHistory() {
   const [review, setReview] = useState('');
   const [userRatings, setUserRatings] = useState({});
   const [submitting, setSubmitting] = useState(false);
+  // 支付相关状态
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [selectedLoan, setSelectedLoan] = useState(null);
   const [paymentAmount, setPaymentAmount] = useState(0);
   const [paymentProcessing, setPaymentProcessing] = useState(false);
-  const [paymentMethod, setPaymentMethod] = useState('wechat'); // 'wechat' 或 'alipay'
+  const [paymentMethod, setPaymentMethod] = useState('wechat');
   const [paymentSuccess, setPaymentSuccess] = useState(false);
+
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -102,6 +104,16 @@ function MyHistory() {
     setTimeout(() => setMessage(''), 3000);
   };
 
+  // 检查图书是否逾期（使用后端返回的数据）
+  const isOverdue = (loan) => {
+    return loan.isOverdue || false;
+  };
+
+  // 获取预计罚款金额（使用后端返回的数据）
+  const getEstimatedFine = (loan) => {
+    return loan.estimatedFineAmount || 0;
+  };
+
   const handleReturn = async (loanId) => {
     const token = localStorage.getItem('token');
     try {
@@ -110,9 +122,18 @@ function MyHistory() {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       const data = await response.json();
-      if (response.ok) {
-        setMessage('归还成功！');
-        fetchHistory();
+      if (response.ok && data.success) {
+        // 如果有罚款，弹出支付窗口
+        if (data.loan && data.loan.fineAmount > 0 && !data.loan.finePaid) {
+          setSelectedLoan(data.loan);
+          setPaymentAmount(data.loan.fineAmount);
+          setPaymentMethod('wechat');
+          setPaymentSuccess(false);
+          setShowPaymentModal(true);
+        } else {
+          setMessage(data.message || '归还成功！');
+          fetchHistory();
+        }
       } else {
         setMessage(data.message || '归还失败');
       }
@@ -120,6 +141,45 @@ function MyHistory() {
       setMessage('归还失败');
     }
     setTimeout(() => setMessage(''), 3000);
+  };
+
+  // 确认支付
+  const handleConfirmPayment = async () => {
+    if (!selectedLoan) return;
+    
+    setPaymentProcessing(true);
+    const token = localStorage.getItem('token');
+    
+    try {
+      const response = await fetch(`http://localhost:3001/api/reader/pay-fine/${selectedLoan.id}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ paymentMethod })
+      });
+      
+      const data = await response.json();
+      if (response.ok && data.success) {
+        setPaymentSuccess(true);
+        setMessage(`支付成功！已支付罚款 ¥${paymentAmount.toFixed(2)}`);
+        setTimeout(() => {
+          setShowPaymentModal(false);
+          fetchHistory(); // 刷新借阅记录
+        }, 2000);
+      } else {
+        setMessage(data.message || '支付失败');
+      }
+    } catch (error) {
+      setMessage('支付失败，请稍后重试');
+    }
+    setPaymentProcessing(false);
+  };
+
+  // 关闭支付弹窗
+  const closePaymentModal = () => {
+    setShowPaymentModal(false);
   };
 
   const openRatingModal = (loan) => {
@@ -168,68 +228,6 @@ function MyHistory() {
     }
     setSubmitting(false);
     setTimeout(() => setMessage(''), 3000);
-  };
-
-  // 打开支付弹窗
-  const openPaymentModal = (loan) => {
-    if (!loan.fineAmount || loan.fineAmount <= 0) {
-      setMessage('该借阅记录没有罚款需要支付');
-      return;
-    }
-    setSelectedLoan(loan);
-    setPaymentAmount(loan.fineAmount);
-    setPaymentMethod('wechat');
-    setPaymentSuccess(false);
-    setShowPaymentModal(true);
-  };
-
-  // 确认支付
-  const handleConfirmPayment = async () => {
-    if (!selectedLoan) return;
-    
-    setPaymentProcessing(true);
-    const token = localStorage.getItem('token');
-    
-    try {
-      // 模拟支付请求
-      const response = await fetch(`http://localhost:3001/api/reader/pay-fine/${selectedLoan.id}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({ paymentMethod })
-      });
-      
-      const data = await response.json();
-      if (response.ok && data.success) {
-        setPaymentSuccess(true);
-        setMessage(`支付成功！已支付罚款 ¥${paymentAmount.toFixed(2)}`);
-        setTimeout(() => {
-          setShowPaymentModal(false);
-          fetchHistory(); // 刷新借阅记录
-        }, 2000);
-      } else {
-        setMessage(data.message || '支付失败');
-      }
-    } catch (error) {
-      setMessage('支付失败，请稍后重试');
-    }
-    setPaymentProcessing(false);
-  };
-
-  // 关闭支付弹窗
-  const closePaymentModal = () => {
-    setShowPaymentModal(false);
-  };
-
-  // 计算逾期天数
-  const calculateOverdueDays = (dueDate) => {
-    const due = new Date(dueDate);
-    const today = new Date();
-    const diffTime = Math.max(0, today - due);
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-    return diffDays;
   };
 
   // 检查是否有罚款需要支付
@@ -503,18 +501,18 @@ function MyHistory() {
                               )}
                               <button
                                 onClick={() => handleReturn(loan.id)}
-                                className="px-2 py-1 bg-red-500 text-white text-xs rounded hover:bg-red-600 transition"
+                                className={`px-2 py-1 text-xs rounded hover:opacity-80 transition ${
+                                  isOverdue(loan.dueDate) 
+                                    ? 'bg-orange-500 text-white hover:bg-orange-600' 
+                                    : 'bg-red-500 text-white hover:bg-red-600'
+                                }`}
                               >
-                                归还
+                                {isOverdue(loan) 
+                                  ? `归还并支付 ¥${getEstimatedFine(loan).toFixed(2)} 罚款` 
+                                  : '归还'
+                                }
                               </button>
-                              {hasFineToPay(loan) && (
-                                <button
-                                  onClick={() => openPaymentModal(loan)}
-                                  className="px-2 py-1 bg-orange-500 text-white text-xs rounded hover:bg-orange-600 transition"
-                                >
-                                  支付罚款 ¥{loan.fineAmount.toFixed(2)}
-                                </button>
-                              )}
+
                             </div>
                           )}
                         </td>
@@ -584,13 +582,7 @@ function MyHistory() {
             {/* 支付信息 */}
             <div className="mb-4 p-4 bg-gray-50 rounded-lg">
               <p className="text-sm text-gray-600">
-                <strong>书籍：</strong>{selectedLoan.copy?.book?.title}
-              </p>
-              <p className="text-sm text-gray-600">
-                <strong>作者：</strong>{selectedLoan.copy?.book?.author}
-              </p>
-              <p className="text-sm text-gray-600">
-                <strong>逾期天数：</strong>{calculateOverdueDays(selectedLoan.dueDate)} 天
+                <strong>书籍：</strong>{selectedLoan.bookTitle}
               </p>
               <p className="text-lg font-bold text-red-600 mt-2">
                 罚款金额：¥{paymentAmount.toFixed(2)}
