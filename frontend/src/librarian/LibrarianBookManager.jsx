@@ -17,6 +17,8 @@ const initialForm = {
   availableCopies: 1,
 };
 
+const numericFormFields = new Set(['floor', 'shelfLevel', 'totalCopies', 'availableCopies']);
+
 function normalizeBookToForm(book) {
   return {
     title: book.title || '',
@@ -25,13 +27,21 @@ function normalizeBookToForm(book) {
     genre: book.genre || '',
     description: book.description || '',
     language: book.language || 'English',
-    floor: book.floor || 1,
+    floor: book.floor ?? 1,
     libraryArea: book.libraryArea || '',
     shelfNo: book.shelfNo || 'A',
-    shelfLevel: book.shelfLevel || 1,
-    totalCopies: book.totalCopies || 1,
-    availableCopies: book.availableCopies || 0,
+    shelfLevel: book.shelfLevel ?? 1,
+    totalCopies: book.totalCopies ?? 1,
+    availableCopies: book.availableCopies ?? 0,
   };
+}
+
+function formatBookLocation(book) {
+  if (!book.totalCopies) {
+    return '暂无副本位置';
+  }
+
+  return `${book.floor ?? 1}F ${book.libraryArea || '未设置'} ${book.shelfNo || 'A'}架 ${book.shelfLevel ?? 1}层`;
 }
 
 function formatDate(value) {
@@ -125,20 +135,15 @@ export default function LibrarianBookManager({ librarian, onBack, onLogout }) {
       
         if (lookupData.success && lookupData.data) {
           // 自动填充新增表单
-          setForm({
+          setForm((current) => ({
+            ...current,
             title: lookupData.data.title || '',
             author: lookupData.data.author || '',
             isbn: lookupData.data.isbn || keyword,
             genre: lookupData.data.genre || '待分类',
             description: lookupData.data.description || '',
             language: lookupData.data.language || 'Chinese',
-            floor: 1,
-            libraryArea: '',
-            shelfNo: 'A',
-            shelfLevel: 1,
-            totalCopies: 1,
-            availableCopies: 1
-          });
+          }));
           setError('✅ 已从豆瓣获取图书信息，请确认后点击"新增图书"添加至馆藏');
           // 滚动到表单顶部
           window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -177,7 +182,8 @@ export default function LibrarianBookManager({ librarian, onBack, onLogout }) {
   const handleChange = (event) => {
     const { name, value } = event.target
     setForm((current) => {
-      const nextForm = { ...current, [name]: value }
+      const nextValue = numericFormFields.has(name) && value !== '' ? Number(value) : value
+      const nextForm = { ...current, [name]: nextValue }
       
       // 当总册数变化时，确保可借册数不超过总册数
       if (name === 'totalCopies') {
@@ -276,6 +282,13 @@ export default function LibrarianBookManager({ librarian, onBack, onLogout }) {
 
     try {
       const token = localStorage.getItem('token')
+      const payload = {
+        ...form,
+        floor: Number(form.floor) || 1,
+        shelfLevel: Number(form.shelfLevel) || 1,
+        totalCopies: Number(form.totalCopies) || 1,
+        availableCopies: Number(form.availableCopies) || 0,
+      }
       const response = await fetch(
         isEditing
           ? `${API_URL}/books/${editingBookId}`
@@ -286,7 +299,7 @@ export default function LibrarianBookManager({ librarian, onBack, onLogout }) {
             'Content-Type': 'application/json',
             Authorization: `Bearer ${token}`,
           },
-          body: JSON.stringify(form),
+          body: JSON.stringify(payload),
         }
       )
 
@@ -682,10 +695,10 @@ export default function LibrarianBookManager({ librarian, onBack, onLogout }) {
                         语言：{book.language || '暂无'}
                       </p>
                       <p className="text-sm text-gray-600 mb-2">
-                        位置：{book.floor || 1}F {book.libraryArea || '未设置'} {book.shelfNo || 'A'}架 {book.shelfLevel || 1}层
+                        位置：{formatBookLocation(book)}
                       </p>
                       <p className="text-sm text-gray-600 mb-2">
-                        副本数：{book.totalCopies || 1} / 可借：{book.availableCopies || 0}
+                        副本数：{book.totalCopies ?? 0} / 可借：{book.availableCopies ?? 0}
                       </p>
                       <p className="text-sm text-gray-500 mb-3">
                         创建时间：{formatDate(book.createdAt)}

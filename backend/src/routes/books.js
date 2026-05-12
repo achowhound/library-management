@@ -34,6 +34,23 @@ function isLookupIsbn(value) {
   return /^(?:\d{10}|\d{9}X|\d{13})$/.test(value);
 }
 
+function parsePositiveInteger(value, fallback = 1) {
+  if (value === undefined || value === null || value === '') {
+    return fallback;
+  }
+
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function parseOptionalPositiveInteger(value) {
+  if (value === undefined || value === null || value === '') {
+    return undefined;
+  }
+
+  return parsePositiveInteger(value, 1);
+}
+
 function inferLanguageFromIsbn(isbn) {
   if (/^97[89][01]/.test(isbn) || /^[01]/.test(isbn)) {
     return 'English';
@@ -510,7 +527,15 @@ router.get('/search', async (req, res) => {
       orderBy: { id: 'asc' },
       include: {
         copies: {
-          select: { status: true }
+          select: {
+            id: true,
+            barcode: true,
+            status: true,
+            floor: true,
+            libraryArea: true,
+            shelfNo: true,
+            shelfLevel: true,
+          }
         },
         ratings: {
           select: { stars: true }
@@ -520,6 +545,7 @@ router.get('/search', async (req, res) => {
 
     const booksWithCount = books.map(book => {
       const availableCopies = book.copies.filter(c => c.status === 'AVAILABLE').length;
+      const firstCopy = book.copies[0] || {};
       const totalRatings = book.ratings.length;
       const averageRating = totalRatings > 0
         ? book.ratings.reduce((sum, r) => sum + r.stars, 0) / totalRatings
@@ -535,6 +561,11 @@ router.get('/search', async (req, res) => {
         createdAt: book.createdAt,
         availableCopies: availableCopies,
         totalCopies: book.copies.length,
+        floor: firstCopy.floor,
+        libraryArea: firstCopy.libraryArea,
+        shelfNo: firstCopy.shelfNo,
+        shelfLevel: firstCopy.shelfLevel,
+        copies: book.copies,
         averageRating: averageRating,
         totalRatings: totalRatings
       };
@@ -629,7 +660,7 @@ router.post('/', requireAuth, requireLibrarian, async (req, res) => {
   try {
     const {
       title, author, isbn, genre, description, language,
-      floor, libraryArea, shelfNo, shelfLevel
+      floor, libraryArea, shelfNo, shelfLevel, totalCopies
     } = req.body;
 
     if (!title || !author || !isbn || !genre) {
@@ -647,47 +678,55 @@ router.post('/', requireAuth, requireLibrarian, async (req, res) => {
       return res.status(409).json({ error: '该 ISBN 已存在' });
     }
 
-    const book = await prisma.book.create({
-      data: {
-        title: title.trim(),
-        author: author.trim(),
-        isbn: normalizedIsbn,
-        genre: genre.trim(),
-        description: description?.trim() || null,
-        language: language?.trim() || 'English',
-      },
-      select: BOOK_SELECT,
-    });
+    const copyFloor = parsePositiveInteger(floor, 1);
+    const copyShelfLevel = parsePositiveInteger(shelfLevel, 1);
+    const copyCount = parsePositiveInteger(totalCopies, 1);
 
-    await prisma.copy.create({
-      data: {
-        bookId: book.id,
-        barcode: `BC-${book.id}-1`,
-        floor: floor || 1,
-        libraryArea: libraryArea || `${genre}区`,
-        shelfNo: shelfNo || 'A',
-        shelfLevel: shelfLevel || 1,
-        status: 'AVAILABLE'
+    const fullBook = await prisma.$transaction(async (tx) => {
+      const book = await tx.book.create({
+        data: {
+          title: title.trim(),
+          author: author.trim(),
+          isbn: normalizedIsbn,
+          genre: genre.trim(),
+          description: description?.trim() || null,
+          language: language?.trim() || 'English',
+        },
+        select: BOOK_SELECT,
+      });
+
+      for (let index = 1; index <= copyCount; index++) {
+        await tx.copy.create({
+          data: {
+            bookId: book.id,
+            barcode: `BC-${book.id}-${index}`,
+            floor: copyFloor,
+            libraryArea: libraryArea || `${genre}区`,
+            shelfNo: shelfNo || 'A',
+            shelfLevel: copyShelfLevel,
+            status: 'AVAILABLE'
+          }
+        });
       }
-    });
 
-    await prisma.auditLog.create({
-      data: {
-        userId: req.user.id,
-        action: 'CREATE_BOOK',
-        entity: 'Book',
-        entityId: book.id,
-        detail: `${req.user.role === 'LIBRARIAN' ? '馆员' : '管理员'} ${req.user.name || req.user.email} 添加了图书《${book.title}》`
-      }
-    });
-
-    const fullBook = await prisma.book.findUnique({
-      where: { id: book.id },
-      include: {
-        copies: {
-          select: { id: true, barcode: true, status: true, floor: true, libraryArea: true, shelfNo: true, shelfLevel: true }
+      await tx.auditLog.create({
+        data: {
+          userId: req.user.id,
+          action: 'CREATE_BOOK',
+          entity: 'Book',
+          entityId: book.id,
+          detail: `${req.user.role === 'LIBRARIAN' ? '馆员' : '管理员'} ${req.user.name || req.user.email} 添加了图书《${book.title}》`
         }
-      }
+      });
+
+      return tx.book.findUnique({
+        where: { id: book.id },
+        include: {
+          copies: {
+            select: { id: true, barcode: true, status: true, floor: true, libraryArea: true, shelfNo: true, shelfLevel: true }
+          }
+        }
+      });
     });
 
     const availableCopies = fullBook.copies.filter(c => c.status === 'AVAILABLE').length;
@@ -741,6 +780,9 @@ router.put('/:id', requireAuth, requireLibrarian, async (req, res) => {
       return res.status(404).json({ error: '图书不存在' });
     }
 
+    const nextFloor = parseOptionalPositiveInteger(floor);
+    const nextShelfLevel = parseOptionalPositiveInteger(shelfLevel);
+
     if (normalizedIsbn !== existingBook.isbn) {
       const isbnConflict = await prisma.book.findUnique({ where: { isbn: normalizedIsbn } });
       if (isbnConflict) {
@@ -767,10 +809,10 @@ router.put('/:id', requireAuth, requireLibrarian, async (req, res) => {
 
       if (targetCount > currentCount) {
         const firstCopy = currentCopies[0] || {
-          floor: floor || 1,
+          floor: nextFloor ?? 1,
           libraryArea: libraryArea || '',
           shelfNo: shelfNo || 'A',
-          shelfLevel: shelfLevel || 1
+          shelfLevel: nextShelfLevel ?? 1
         };
 
         for (let i = currentCount + 1; i <= targetCount; i++) {
@@ -778,10 +820,10 @@ router.put('/:id', requireAuth, requireLibrarian, async (req, res) => {
             data: {
               bookId: bookId,
               barcode: `BC-${bookId}-${i}`,
-              floor: floor !== undefined ? floor : firstCopy.floor,
+              floor: nextFloor ?? firstCopy.floor,
               libraryArea: libraryArea !== undefined ? libraryArea : firstCopy.libraryArea,
               shelfNo: shelfNo !== undefined ? shelfNo : firstCopy.shelfNo,
-              shelfLevel: shelfLevel !== undefined ? shelfLevel : firstCopy.shelfLevel,
+              shelfLevel: nextShelfLevel ?? firstCopy.shelfLevel,
               status: 'AVAILABLE'
             }
           });
@@ -819,10 +861,10 @@ router.put('/:id', requireAuth, requireLibrarian, async (req, res) => {
         await prisma.copy.update({
           where: { id: copy.id },
           data: {
-            floor: floor !== undefined ? floor : copy.floor,
+            floor: nextFloor ?? copy.floor,
             libraryArea: libraryArea !== undefined ? libraryArea : copy.libraryArea,
             shelfNo: shelfNo !== undefined ? shelfNo : copy.shelfNo,
-            shelfLevel: shelfLevel !== undefined ? shelfLevel : copy.shelfLevel,
+            shelfLevel: nextShelfLevel ?? copy.shelfLevel,
           }
         });
       }
