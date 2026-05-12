@@ -41,7 +41,7 @@ useEffect(() => {
 
       setStats({
         totalBooks: booksData.data?.length || 0,
-        activeLoans: loansData.stats?.active || 0,
+        activeLoans: loansData.stats?.total || 0,
         overdueLoans: loansData.stats?.overdue || 0,
         totalStudents: 0,
         todayLoans: todayData.todayLoans || 0  // ← 使用真实数据

@@ -324,48 +324,80 @@ router.get('/books/scan', requireAuth, checkLibrarianOrAdmin, async (req, res) =
   }
 });
 
-// 扫描借阅记录
+// 扫描借阅记录（支持学生ID和ISBN双重验证）
 router.get('/loans/scan', requireAuth, checkLibrarianOrAdmin, async (req, res) => {
   try {
-    const { isbn } = req.query;
-    if (!isbn || !isbn.trim()) {
-      return res.status(400).json({ success: false, message: '请提供图书ISBN' });
+    const { isbn, studentId } = req.query;
+    
+    // 至少需要提供ISBN或学生ID之一
+    if ((!isbn || !isbn.trim()) && (!studentId || !studentId.trim())) {
+      return res.status(400).json({ success: false, message: '请提供图书ISBN或学生学号' });
     }
 
-    const book = await prisma.book.findUnique({
-      where: { isbn: isbn.trim() },
-      include: { copies: { select: { id: true, barcode: true } } }
-    });
+    // 如果提供了ISBN，先查找图书
+    let copyIds = [];
+    if (isbn && isbn.trim()) {
+      const book = await prisma.book.findUnique({
+        where: { isbn: isbn.trim() },
+        include: { copies: { select: { id: true, barcode: true } } }
+      });
 
-    if (!book) {
-      return res.status(404).json({ success: false, message: '未找到该图书' });
+      if (!book) {
+        return res.status(404).json({ success: false, message: '未找到该图书' });
+      }
+      copyIds = book.copies.map(copy => copy.id);
     }
 
-    const copyIds = book.copies.map(copy => copy.id);
-    const loan = await prisma.loan.findFirst({
-      where: {
-        copyId: { in: copyIds },
-        returnDate: null
-      },
+    // 如果提供了学生ID，先查找学生
+    let userId = null;
+    if (studentId && studentId.trim()) {
+      const user = await prisma.user.findUnique({
+        where: { studentId: studentId.trim() },
+        select: { id: true }
+      });
+
+      if (!user) {
+        return res.status(404).json({ success: false, message: '未找到该学生' });
+      }
+      userId = user.id;
+    }
+
+    // 构建查询条件
+    const whereClause = {
+      returnDate: null
+    };
+    
+    if (copyIds.length > 0) {
+      whereClause.copyId = { in: copyIds };
+    }
+    
+    if (userId) {
+      whereClause.userId = userId;
+    }
+
+    // 使用findMany返回所有匹配的借阅记录
+    const loans = await prisma.loan.findMany({
+      where: whereClause,
       include: {
         user: { select: { id: true, name: true, studentId: true } },
         copy: { include: { book: { select: { id: true, title: true, isbn: true } } } }
-      }
+      },
+      orderBy: { checkoutDate: 'desc' }
     });
 
-    if (!loan) {
-      return res.status(404).json({ success: false, message: '该图书当前没有借出记录' });
+    if (!loans || loans.length === 0) {
+      return res.status(404).json({ success: false, message: '未找到匹配的借阅记录' });
     }
 
     const fineRatePerDay = await getFineRatePerDay();
-    const decoratedLoan = decorateLoanWithFine(loan, fineRatePerDay);
+    const decoratedLoans = loans.map((loan) => ({
+      ...decorateLoanWithFine(loan, fineRatePerDay),
+      status: loan.isOverdue ? 'overdue' : 'active'
+    }));
 
     res.json({
       success: true,
-      loan: {
-        ...decoratedLoan,
-        status: decoratedLoan.isOverdue ? 'overdue' : 'active'
-      }
+      loans: decoratedLoans
     });
   } catch (error) {
     console.error('Scan loan error:', error);

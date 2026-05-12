@@ -10,8 +10,10 @@ export default function LibrarianReturnBooks({ onBack }) {
   const [message, setMessage] = useState('')
   const [stats, setStats] = useState({ total: 0, active: 0, overdue: 0 })
   const [scanMode, setScanMode] = useState(false)
-  const [scannedLoan, setScannedLoan] = useState(null)
+  const [scannedLoans, setScannedLoans] = useState([])
+  const [scanStudentId, setScanStudentId] = useState('')
   const scanInputRef = useRef(null)
+  const scanModeInputRef = useRef(null)
 
   const formatCurrency = (amount) => {
     const safeAmount = Number(amount || 0)
@@ -91,17 +93,30 @@ export default function LibrarianReturnBooks({ onBack }) {
     }
   }
 
-  const scanLoan = async (isbn) => {
+  const scanLoan = async () => {
     setError('')
     setMessage('')
-    if (!isbn.trim()) {
-      setError('请扫描图书ISBN')
+    const isbn = scanModeInputRef.current?.value || ''
+    
+    // 至少需要ISBN或学生ID之一
+    if (!isbn.trim() && !scanStudentId.trim()) {
+      setError('请提供图书ISBN或学生学号')
       return
     }
 
     setLoading(true)
     try {
-      const response = await fetch(`${API_URL}/loans/loans/scan?isbn=${encodeURIComponent(isbn)}`, {
+      let url = `${API_URL}/loans/loans/scan`
+      const params = []
+      if (isbn.trim()) {
+        params.push(`isbn=${encodeURIComponent(isbn.trim())}`)
+      }
+      if (scanStudentId.trim()) {
+        params.push(`studentId=${encodeURIComponent(scanStudentId.trim())}`)
+      }
+      url += '?' + params.join('&')
+
+      const response = await fetch(url, {
         headers: getAuthHeaders(),
       })
       const data = await response.json()
@@ -110,11 +125,11 @@ export default function LibrarianReturnBooks({ onBack }) {
         throw new Error(data.message || '识别失败')
       }
 
-      setScannedLoan(data.loan)
-      setMessage(`✅ 成功识别借阅记录`)
+      setScannedLoans(data.loans || [])
+      setMessage(`✅ 成功识别 ${data.loans?.length || 0} 条借阅记录`)
     } catch (err) {
       setError(err.message)
-      setScannedLoan(null)
+      setScannedLoans([])
     } finally {
       setLoading(false)
     }
@@ -122,18 +137,17 @@ export default function LibrarianReturnBooks({ onBack }) {
 
   const handleScanInput = (e) => {
     if (e.key === 'Enter') {
-      const value = e.target.value
-      if (value && value.trim()) {
-        scanLoan(value)
-        e.target.value = ''
+      scanLoan()
+      if (scanModeInputRef.current) {
+        scanModeInputRef.current.value = ''
       }
     }
   }
 
-  const handleQuickReturn = async (waiveFine = false) => {
-    if (!scannedLoan) return
+  const handleQuickReturn = async (loanId, waiveFine = false) => {
+    const loan = scannedLoans.find(l => l.id === loanId)
+    if (!loan) return
 
-    const loan = scannedLoan
     const confirmMsg = waiveFine && loan?.estimatedFineAmount > 0
       ? `确定接收归还并免除 ${formatCurrency(loan.estimatedFineAmount)} 的罚款吗？`
       : '确认接收该图书归还吗？'
@@ -143,14 +157,14 @@ export default function LibrarianReturnBooks({ onBack }) {
     }
 
     try {
-      setActionLoanId(loan.id)
+      setActionLoanId(loanId)
       setError('')
       setMessage('')
 
       const response = await fetch(`${API_URL}/loans/return`, {
         method: 'POST',
         headers: getAuthHeaders(),
-        body: JSON.stringify({ loanId: loan.id, waiveFine }),
+        body: JSON.stringify({ loanId, waiveFine }),
       })
       const data = await response.json()
 
@@ -172,8 +186,8 @@ export default function LibrarianReturnBooks({ onBack }) {
         setMessage(`✅ ${data.message}`)
       }
       
-      setScannedLoan(null)
-      setScanMode(false)
+      // 更新扫描结果列表，移除已归还的记录
+      setScannedLoans(prev => prev.filter(l => l.id !== loanId))
       await fetchActiveLoans()
       
       setTimeout(() => setMessage(''), 3000)
@@ -288,79 +302,116 @@ export default function LibrarianReturnBooks({ onBack }) {
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2">
               <span className="text-xl">📷</span>
-              <span className="font-semibold text-orange-700">请扫描图书ISBN</span>
+              <span className="font-semibold text-orange-700">扫码还书</span>
             </div>
           </div>
-          <input
-            ref={scanInputRef}
-            type="text"
-            onKeyDown={handleScanInput}
-            className="w-full px-4 py-3 border-2 border-orange-300 rounded-lg text-lg text-center focus:outline-none focus:border-orange-500"
-            placeholder="扫描ISBN后自动识别借阅记录..."
-            autoFocus
-          />
+          <div className="grid grid-cols-2 gap-3">
+            <input
+              ref={scanModeInputRef}
+              type="text"
+              onKeyDown={handleScanInput}
+              className="px-4 py-3 border-2 border-orange-300 rounded-lg text-lg focus:outline-none focus:border-orange-500"
+              placeholder="图书ISBN"
+              autoFocus
+            />
+            <input
+              type="text"
+              value={scanStudentId}
+              onChange={(e) => setScanStudentId(e.target.value)}
+              onKeyDown={handleScanInput}
+              className="px-4 py-3 border-2 border-orange-300 rounded-lg text-lg focus:outline-none focus:border-orange-500"
+              placeholder="学生学号（可选）"
+            />
+          </div>
+          <div className="flex gap-3 mt-3">
+            <button
+              onClick={scanLoan}
+              disabled={loading}
+              className="flex-1 bg-orange-500 text-white py-2 rounded-lg hover:bg-orange-600 transition disabled:opacity-50 font-semibold"
+            >
+              {loading ? '识别中...' : '🔍 识别借阅记录'}
+            </button>
+            <button
+              onClick={() => {
+                setScanStudentId('')
+                if (scanModeInputRef.current) {
+                  scanModeInputRef.current.value = ''
+                }
+                setScannedLoans([])
+              }}
+              className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition"
+            >
+              清空
+            </button>
+          </div>
           <p className="text-xs text-orange-600 text-center mt-2">
-            提示：扫描设备读取ISBN后会自动输入并识别
+            提示：可单独输入ISBN查询所有借阅该图书的记录，或同时输入学号进行精确匹配
           </p>
         </div>
       )}
 
       {/* 扫码识别结果 */}
-      {scannedLoan && (
+      {scannedLoans.length > 0 && (
         <div className="mb-4 p-4 bg-blue-50 border-2 border-blue-300 rounded-lg">
-          <h3 className="font-semibold text-blue-800 mb-3">📋 识别到的借阅记录</h3>
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <span className="text-gray-500 text-sm">学生：</span>
-              <span className="font-medium">{scannedLoan.user?.name || '-'}</span>
-            </div>
-            <div>
-              <span className="text-gray-500 text-sm">学号：</span>
-              <span>{scannedLoan.user?.studentId || '-'}</span>
-            </div>
-            <div>
-              <span className="text-gray-500 text-sm">图书：</span>
-              <span className="font-medium">{scannedLoan.copy?.book?.title || '-'}</span>
-            </div>
-            <div>
-              <span className="text-gray-500 text-sm">条码：</span>
-              <span>{scannedLoan.copy?.barcode || '-'}</span>
-            </div>
-            <div>
-              <span className="text-gray-500 text-sm">借出日期：</span>
-              <span>{new Date(scannedLoan.checkoutDate).toLocaleDateString()}</span>
-            </div>
-            <div>
-              <span className="text-gray-500 text-sm">应还日期：</span>
-              <span className={scannedLoan.isOverdue ? 'text-red-600 font-semibold' : ''}>
-                {new Date(scannedLoan.dueDate).toLocaleDateString()}
-              </span>
-            </div>
-          </div>
-          {scannedLoan.isOverdue && (
-            <div className="mt-3 p-2 bg-red-100 rounded-lg">
-              <span className="text-red-600 text-sm">
-                ⚠️ 逾期 {scannedLoan.overdueDays} 天，预计罚款 {formatCurrency(scannedLoan.estimatedFineAmount)}
-              </span>
-            </div>
-          )}
-          <div className="flex gap-3 mt-4">
-            <button
-              onClick={() => handleQuickReturn(false)}
-              disabled={actionLoanId === scannedLoan.id}
-              className="flex-1 bg-green-500 text-white py-2 rounded-lg hover:bg-green-600 transition disabled:opacity-50 font-semibold"
-            >
-              {actionLoanId === scannedLoan.id ? '处理中...' : '✅ 确认归还'}
-            </button>
-            {scannedLoan.isOverdue && scannedLoan.estimatedFineAmount > 0 && (
-              <button
-                onClick={() => handleQuickReturn(true)}
-                disabled={actionLoanId === scannedLoan.id}
-                className="flex-1 bg-orange-500 text-white py-2 rounded-lg hover:bg-orange-600 transition disabled:opacity-50 font-semibold"
-              >
-                免罚归还
-              </button>
-            )}
+          <h3 className="font-semibold text-blue-800 mb-3">📋 识别到的借阅记录（共 {scannedLoans.length} 条）</h3>
+          <div className="space-y-4">
+            {scannedLoans.map((loan) => (
+              <div key={loan.id} className="p-3 bg-white rounded-lg border border-blue-200">
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <span className="text-gray-500 text-sm">学生：</span>
+                    <span className="font-medium">{loan.user?.name || '-'}</span>
+                  </div>
+                  <div>
+                    <span className="text-gray-500 text-sm">学号：</span>
+                    <span>{loan.user?.studentId || '-'}</span>
+                  </div>
+                  <div>
+                    <span className="text-gray-500 text-sm">图书：</span>
+                    <span className="font-medium">{loan.copy?.book?.title || '-'}</span>
+                  </div>
+                  <div>
+                    <span className="text-gray-500 text-sm">ISBN码：</span>
+                    <span>{loan.copy?.book?.isbn || '-'}</span>
+                  </div>
+                  <div>
+                    <span className="text-gray-500 text-sm">借出日期：</span>
+                    <span>{new Date(loan.checkoutDate).toLocaleDateString()}</span>
+                  </div>
+                  <div>
+                    <span className="text-gray-500 text-sm">应还日期：</span>
+                    <span className={loan.isOverdue ? 'text-red-600 font-semibold' : ''}>
+                      {new Date(loan.dueDate).toLocaleDateString()}
+                    </span>
+                  </div>
+                </div>
+                {loan.isOverdue && (
+                  <div className="mt-2 p-2 bg-red-100 rounded-lg">
+                    <span className="text-red-600 text-sm">
+                      ⚠️ 逾期 {loan.overdueDays} 天，预计罚款 {formatCurrency(loan.estimatedFineAmount)}
+                    </span>
+                  </div>
+                )}
+                <div className="flex gap-3 mt-3">
+                  <button
+                    onClick={() => handleQuickReturn(loan.id, false)}
+                    disabled={actionLoanId === loan.id}
+                    className="flex-1 bg-green-500 text-white py-2 rounded-lg hover:bg-green-600 transition disabled:opacity-50 font-semibold"
+                  >
+                    {actionLoanId === loan.id ? '处理中...' : '✅ 确认归还'}
+                  </button>
+                  {loan.isOverdue && loan.estimatedFineAmount > 0 && (
+                    <button
+                      onClick={() => handleQuickReturn(loan.id, true)}
+                      disabled={actionLoanId === loan.id}
+                      className="flex-1 bg-orange-500 text-white py-2 rounded-lg hover:bg-orange-600 transition disabled:opacity-50 font-semibold"
+                    >
+                      免罚归还
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       )}
