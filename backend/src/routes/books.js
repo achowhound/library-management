@@ -548,7 +548,7 @@ router.get('/search', async (req, res) => {
       const firstCopy = book.copies[0] || {};
       const totalRatings = book.ratings.length;
       const averageRating = totalRatings > 0
-        ? book.ratings.reduce((sum, r) => sum + r.stars, 0) / totalRatings
+        ? Math.round(book.ratings.reduce((sum, r) => sum + r.stars, 0) / totalRatings * 10) / 10
         : null;
       return {
         id: book.id,
