@@ -41,6 +41,8 @@ async function requireAuth(req, res, next) {
         studentId: true,
         employeeId: true,
         role: true,
+        isBlocked: true,
+        blockReason: true,
       }
     });
 

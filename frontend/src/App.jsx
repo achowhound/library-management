@@ -12,6 +12,7 @@ import AdminAnnouncements from './pages/AdminAnnouncements';
 import UserManagement from './pages/UserManagement';
 import Messages from './pages/Messages';
 import SystemConfig from './pages/SystemConfig';
+import AdminBlocklist from './pages/AdminBlocklist';
 
 
 function App() {
@@ -76,6 +77,7 @@ function App() {
         )
       } />
       <Route path="/admin/config" element={<SystemConfig />} />
+      <Route path="/admin/blocklist" element={<AdminBlocklist />} />
     </Routes>
   );
 }

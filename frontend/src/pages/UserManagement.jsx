@@ -18,7 +18,7 @@ function UserManagement() {
 
   const fetchUsers = async () => {
     try {
-      const response = await fetch('http://localhost:3001/readers/all', {
+      const response = await fetch('http://localhost:3001/api/readers/all', {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       const data = await response.json();
@@ -40,7 +40,7 @@ function UserManagement() {
 
   const handleRoleChange = async (userId, newRole) => {
     try {
-      const response = await fetch(`http://localhost:3001/readers/${userId}/role`, {
+      const response = await fetch(`http://localhost:3001/api/readers/${userId}/role`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -63,7 +63,7 @@ function UserManagement() {
   const handleCreateUser = async (e) => {
     e.preventDefault();
     try {
-      const response = await fetch('http://localhost:3001/readers/create', {
+      const response = await fetch('http://localhost:3001/api/readers/create', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

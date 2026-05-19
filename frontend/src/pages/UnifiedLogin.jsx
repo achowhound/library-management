@@ -7,6 +7,7 @@ const UnifiedLogin = () => {
   const [employeeId, setEmployeeId] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
+  const [bannedInfo, setBannedInfo] = useState(null);
   const [loading, setLoading] = useState(false);
   const [rememberMe, setRememberMe] = useState(false);
 
@@ -23,6 +24,7 @@ const UnifiedLogin = () => {
   const handleRoleChange = (newRole) => {
     setRole(newRole);
     setError('');
+    setBannedInfo(null);
     setEmail('');
     setPassword('');
     setEmployeeId('');
@@ -66,10 +68,17 @@ const UnifiedLogin = () => {
       const data = await res.json();
 
       if (!res.ok) {
-        setError(data.error || data.message || '登录失败');
+        if (data.blocked) {
+          setBannedInfo({ reason: data.blockReason || '违反图书馆相关规定' });
+          setError('');
+        } else {
+          setBannedInfo(null);
+          setError(data.error || data.message || '登录失败');
+        }
         setLoading(false);
         return;
       }
+      setBannedInfo(null);
 
       if (role === 'librarian') {
         localStorage.setItem('librarianToken', data.token);
@@ -234,6 +243,18 @@ const UnifiedLogin = () => {
                   />
                   <span className="ml-2 text-sm text-gray-600">记住工号</span>
                 </label>
+              </div>
+            )}
+
+            {bannedInfo && (
+              <div className="mb-4 p-4 bg-red-50 border-2 border-red-400 rounded-lg">
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="text-xl">🚫</span>
+                  <span className="font-bold text-red-700 text-sm">账号已被封禁（Banned）</span>
+                </div>
+                <p className="text-red-600 text-sm">您的账号已被管理员封禁，无法登录。</p>
+                <p className="text-red-500 text-xs mt-1">封禁原因：{bannedInfo.reason}</p>
+                <p className="text-gray-400 text-xs mt-2">如有疑问，请联系图书馆管理员。</p>
               </div>
             )}
 

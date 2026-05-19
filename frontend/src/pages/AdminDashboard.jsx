@@ -52,12 +52,17 @@ function AdminDashboard() {
       icon: '📝'
     },
     {
-    title: '系统配置',
-    description: '配置借阅规则、逾期罚款等全局参数',
-    href: '/admin/config',
-    icon: '⚙️'
+      title: '系统配置',
+      description: '配置借阅规则、逾期罚款等全局参数',
+      href: '/admin/config',
+      icon: '⚙️'
+    },
+    {
+      title: '用户黑名单',
+      description: '封禁违规用户，限制其借阅和续借权限',
+      href: '/admin/blocklist',
+      icon: '🚫'
     }
-
   ];
 
   return (

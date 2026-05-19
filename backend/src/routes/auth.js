@@ -38,6 +38,14 @@ router.post('/login', async (req, res) => {
         return res.status(401).json({ error: '密码错误', type: 'student' });
       }
 
+      if (user.isBlocked) {
+        return res.status(403).json({
+          error: '您的账号已被封禁，无法登录',
+          blocked: true,
+          blockReason: user.blockReason || '违反图书馆相关规定'
+        });
+      }
+
       const token = signToken({
         sub: String(user.id),
         id: user.id,
@@ -83,6 +91,14 @@ router.post('/login', async (req, res) => {
       const isValid = await bcrypt.compare(password, librarian.passwordHash);
       if (!isValid) {
         return res.status(401).json({ error: '密码错误', type: 'librarian' });
+      }
+
+      if (librarian.isBlocked) {
+        return res.status(403).json({
+          error: '您的账号已被封禁，无法登录',
+          blocked: true,
+          blockReason: librarian.blockReason || '违反图书馆相关规定'
+        });
       }
 
       const token = signToken({
@@ -181,6 +197,14 @@ router.post('/login-student', async (req, res) => {
     const isValid = await bcrypt.compare(password, user.passwordHash);
     if (!isValid) {
       return res.status(401).json({ error: '密码错误' });
+    }
+
+    if (user.isBlocked) {
+      return res.status(403).json({
+        error: '您的账号已被封禁，无法登录',
+        blocked: true,
+        blockReason: user.blockReason || '违反图书馆相关规定'
+      });
     }
 
     const token = signToken({
@@ -288,6 +312,14 @@ router.post('/login-librarian', async (req, res) => {
     const isValid = await bcrypt.compare(password, librarian.passwordHash);
     if (!isValid) {
       return res.status(401).json({ error: '密码错误' });
+    }
+
+    if (librarian.isBlocked) {
+      return res.status(403).json({
+        error: '您的账号已被封禁，无法登录',
+        blocked: true,
+        blockReason: librarian.blockReason || '违反图书馆相关规定'
+      });
     }
 
     const token = signToken({

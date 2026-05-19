@@ -93,6 +93,10 @@ router.get('/available-copies/:bookId', requireAuth, async (req, res) => {
 
 // 借阅图书（选择具体副本）
 router.post('/borrow/:copyId', requireAuth, async (req, res) => {
+  if (req.user.isBlocked) {
+    return res.status(403).json({ message: `您的账号已被封禁，无法借阅书籍。封禁原因：${req.user.blockReason || '违反图书馆相关规定'}` });
+  }
+
   try {
     const copyId = parseInt(req.params.copyId);
 
@@ -181,6 +185,10 @@ router.post('/borrow/:copyId', requireAuth, async (req, res) => {
 
 // 续借图书 - 使用 copyId
 router.post('/renew', requireAuth, async (req, res) => {
+  if (req.user.isBlocked) {
+    return res.status(403).json({ message: `您的账号已被封禁，无法续借书籍。封禁原因：${req.user.blockReason || '违反图书馆相关规定'}` });
+  }
+
   try {
     const { copyId } = req.body;
 

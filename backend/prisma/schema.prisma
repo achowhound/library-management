@@ -34,6 +34,9 @@ model User {
   studentId              String?                 @unique
   employeeId             String?                 @unique  // 馆员工号（你的功能需要）
   role                   Role                    @default(STUDENT)
+  isBlocked              Boolean                 @default(false)
+  blockReason            String?
+  blockedAt              DateTime?
   createdAt              DateTime                @default(now())
   updatedAt              DateTime                @updatedAt
   loans                  Loan[]
