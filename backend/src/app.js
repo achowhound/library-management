@@ -12,6 +12,7 @@ const ratingsRouter = require('./routes/ratings');
 const readerBorrowRouter = require('./routes/reader-borrow');
 const librarianSearchBorrowHistory = require('./routes/LibrarianSearchBorrowHistory');
 const configRouter = require('./routes/config');
+const logsRouter = require('./routes/logs');
 const blocklistRouter = require('./routes/blocklist');
 
 const app = express();
@@ -43,6 +44,7 @@ app.use('/api/ratings', ratingsRouter);                                      // 
 app.use('/api/reader', readerBorrowRouter);                                  // 你的：读者借阅路由
 app.use('/api/librarian/search-history', librarianSearchBorrowHistory);      // 你的：馆员搜索历史
 app.use('/api/config', configRouter);                                        // 系统配置
+app.use('/api/logs', logsRouter);                                            // 系统审计日志
 app.use('/api/admin/blocklist', blocklistRouter);                             // 用户黑名单管理
 
 // 404 处理（使用组长的详细版本）
