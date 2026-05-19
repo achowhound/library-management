@@ -30,7 +30,7 @@ function AdminDashboard() {
     {
       title: '系统日志',
       description: '查看系统操作日志',
-      href: '/admin-logs',
+      href: '/admin-logs.html',
       icon: '📋'
     },
     {
