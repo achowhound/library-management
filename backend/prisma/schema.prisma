@@ -181,3 +181,16 @@ model Message {
   sender     User     @relation("MessageSender", fields: [senderId], references: [id])
   receiver   User     @relation("MessageReceiver", fields: [receiverId], references: [id])
 }
+
+model BackupLog {
+  id          Int      @id @default(autoincrement())
+  filename    String
+  filepath    String
+  sizeBytes   BigInt
+  status      String   @default("completed") // completed, failed, restored
+  type        String   @default("manual")    // manual, scheduled
+  note        String?
+  createdAt   DateTime @default(now())
+  restoredAt  DateTime?
+  createdBy   Int?     // 管理员 userId
+}
