@@ -56,6 +56,12 @@ function AdminDashboard() {
     description: '配置借阅规则、逾期罚款等全局参数',
     href: '/admin/config',
     icon: '⚙️'
+    },
+    {
+      title: '数据库备份',
+      description: '创建、恢复和管理数据库备份',
+      href: '/admin/backups',
+      icon: '💾'
     }
 
   ];
