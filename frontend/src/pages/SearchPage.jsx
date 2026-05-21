@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import ReaderLayout from '../components/ReaderLayout';
 import DueReminderBanner from '../components/DueReminderBanner';
 
-function BookSearch() {
+function SearchPage() {
   const navigate = useNavigate();
   const [user, setUser] = useState(null);
   const [searchTitle, setSearchTitle] = useState('');
@@ -397,4 +397,4 @@ function BookSearch() {
   );
 }
 
-export default BookSearch;
+export default SearchPage;

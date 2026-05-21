@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
+import ReaderLayout from '../components/ReaderLayout';
 import { Megaphone, Search, ChevronLeft, ChevronRight, Pin } from 'lucide-react';
 
 export default function Announcements() {
@@ -9,6 +10,19 @@ export default function Announcements() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
+  const [user, setUser] = useState(null);
+
+  useEffect(() => {
+    const userData = localStorage.getItem('user');
+    if (userData) {
+      try {
+        setUser(JSON.parse(userData));
+      } catch (e) {
+        console.error('Failed to parse user data');
+      }
+    }
+    fetchAnnouncements(1);
+  }, []);
 
   const fetchAnnouncements = async (page = 1) => {
     setLoading(true);
@@ -26,12 +40,9 @@ export default function Announcements() {
     }
   };
 
-  useEffect(() => {
-    fetchAnnouncements(1);
-  }, []);
-
   const handleSearch = (e) => {
     e.preventDefault();
+    setSearchQuery(search);
     fetchAnnouncements(1);
   };
 
@@ -53,12 +64,12 @@ export default function Announcements() {
   };
 
   return (
-    <div className="container mx-auto px-4 py-6">
+    <ReaderLayout user={user}>
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2">
             <Megaphone className="h-6 w-6" />
-            图书馆公告
+            公告通知
           </h1>
           <p className="text-gray-600 mt-1">查看最新的图书馆通知和资讯</p>
         </div>
@@ -170,6 +181,6 @@ export default function Announcements() {
           </button>
         </div>
       )}
-    </div>
+    </ReaderLayout>
   );
 }

@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import ReaderLayout from '../components/ReaderLayout';
 import DueReminderBanner from '../components/DueReminderBanner';
 
 function MyHistory() {
@@ -104,18 +105,14 @@ function MyHistory() {
     setTimeout(() => setMessage(''), 3000);
   };
 
-  // 检查图书是否逾期（使用后端返回的数据）
   const isOverdue = (loan) => {
     return loan.isOverdue || false;
   };
 
-  // 判断是否需要显示归还并支付罚款按钮
   const needsFinePayment = (loan) => {
-    // 图书未归还且已逾期
     return !loan.returnDate && loan.isOverdue && loan.estimatedFineAmount > 0;
   };
 
-  // 获取预计罚款金额（使用后端返回的数据）
   const getEstimatedFine = (loan) => {
     return loan.estimatedFineAmount || 0;
   };
@@ -129,7 +126,6 @@ function MyHistory() {
       });
       const data = await response.json();
       if (response.ok && data.success) {
-        // 如果有罚款，弹出支付窗口
         if (data.loan && data.loan.fineAmount > 0 && !data.loan.finePaid) {
           setSelectedLoan(data.loan);
           setPaymentAmount(data.loan.fineAmount);
@@ -149,7 +145,6 @@ function MyHistory() {
     setTimeout(() => setMessage(''), 3000);
   };
 
-  // 确认支付
   const handleConfirmPayment = async () => {
     if (!selectedLoan) return;
     
@@ -172,7 +167,7 @@ function MyHistory() {
         setMessage(`支付成功！已支付罚款 ¥${paymentAmount.toFixed(2)}`);
         setTimeout(() => {
           setShowPaymentModal(false);
-          fetchHistory(); // 刷新借阅记录
+          fetchHistory();
         }, 2000);
       } else {
         setMessage(data.message || '支付失败');
@@ -183,7 +178,6 @@ function MyHistory() {
     setPaymentProcessing(false);
   };
 
-  // 关闭支付弹窗
   const closePaymentModal = () => {
     setShowPaymentModal(false);
   };
@@ -236,7 +230,6 @@ function MyHistory() {
     setTimeout(() => setMessage(''), 3000);
   };
 
-  // 检查是否有罚款需要支付
   const hasFineToPay = (loan) => {
     return loan.fineAmount && loan.fineAmount > 0 && !loan.finePaid;
   };
@@ -291,19 +284,6 @@ function MyHistory() {
     return !!bookId;
   };
 
-  const handleLogout = () => {
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
-    navigate('/login');
-  };
-
-  const getGreeting = () => {
-    const hour = new Date().getHours();
-    if (hour < 12) return '早上好';
-    if (hour < 18) return '下午好';
-    return '晚上好';
-  };
-
   const StarRating = ({ value, onChange, interactive = false, size = 'md' }) => {
     const sizeClass = size === 'sm' ? 'text-lg' : 'text-2xl';
     return (
@@ -325,212 +305,137 @@ function MyHistory() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <svg className="animate-spin h-8 w-8 text-blue-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-        </svg>
-      </div>
+      <ReaderLayout user={user}>
+        <div className="flex items-center justify-center min-h-[60vh]">
+          <svg className="animate-spin h-8 w-8 text-blue-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+          </svg>
+        </div>
+      </ReaderLayout>
     );
   }
 
   if (error) return (
-    <div className="min-h-screen bg-gray-100">
-      <header className="bg-white shadow-md sticky top-0 z-10">
-        <div className="max-w-7xl mx-auto px-4 py-4 flex justify-between items-center">
-          <div className="flex items-center gap-3">
-            <div className="text-2xl">📚</div>
-            <h1 className="text-xl font-bold text-gray-800">图书馆管理系统</h1>
-            <span className="bg-green-100 text-green-600 text-xs px-2 py-1 rounded-full">读者</span>
-          </div>
-          <div className="flex items-center gap-4">
-            <button onClick={handleLogout} className="bg-red-500 text-white px-4 py-2 rounded-lg hover:bg-red-600 transition text-sm">
-              退出登录
-            </button>
-          </div>
-        </div>
-      </header>
-      <div className="max-w-7xl mx-auto px-4 py-8">
-        <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-lg">
-          错误: {error}
-        </div>
+    <ReaderLayout user={user}>
+      <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-lg">
+        错误: {error}
       </div>
-    </div>
+    </ReaderLayout>
   );
 
   return (
-    <div className="min-h-screen bg-gray-100">
-      <header className="bg-white shadow-md sticky top-0 z-10">
-        <div className="max-w-7xl mx-auto px-4 py-4 flex justify-between items-center">
-          <div className="flex items-center gap-3">
-            <div className="text-2xl">📚</div>
-            <h1 className="text-xl font-bold text-gray-800">图书馆管理系统</h1>
-            <span className="bg-green-100 text-green-600 text-xs px-2 py-1 rounded-full">读者</span>
-          </div>
-          <div className="flex items-center gap-4">
-            <div className="text-right">
-              <p className="text-sm text-gray-500">{getGreeting()}</p>
-              <p className="font-semibold text-gray-800">{user?.name || '读者'}</p>
-              <p className="text-xs text-gray-400">{user?.email || ''}</p>
-            </div>
-            <button onClick={handleLogout} className="bg-red-500 text-white px-4 py-2 rounded-lg hover:bg-red-600 transition text-sm">
-              退出登录
-            </button>
-          </div>
+    <ReaderLayout user={user}>
+      <DueReminderBanner />
+
+      <div className="bg-gradient-to-r from-blue-500 to-purple-600 rounded-lg shadow-lg p-6 mb-8 text-white">
+        <h2 className="text-2xl font-bold mb-2">借阅记录</h2>
+        <p className="opacity-90">查看和管理您的借阅记录</p>
+      </div>
+
+      {message && (
+        <div className={`p-4 mb-6 rounded-lg ${message.includes('成功') || message.includes('已') ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+          {message}
         </div>
-      </header>
+      )}
 
-      <main className="max-w-7xl mx-auto px-4 py-8">
-        <DueReminderBanner />
-
-        <div className="bg-gradient-to-r from-blue-500 to-purple-600 rounded-lg shadow-lg p-6 mb-8 text-white">
-          <h2 className="text-2xl font-bold mb-2">{getGreeting()}，{user?.name || '读者'}！</h2>
-          <p className="opacity-90">在这里您可以查看和管理您的借阅记录。</p>
+      {history.length === 0 ? (
+        <div className="bg-white rounded-lg shadow p-8 text-center text-gray-500">
+          暂无借阅记录
         </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-          <div
-            onClick={() => navigate('/')}
-            className="bg-white p-6 rounded-lg shadow-lg hover:shadow-xl transition cursor-pointer"
-          >
-            <div className="text-4xl mb-4">🔍</div>
-            <h2 className="text-xl font-bold mb-2">图书搜索</h2>
-            <p className="text-gray-500 text-sm mb-4">搜索并浏览图书</p>
-            <button className="w-full bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600 transition">
-              进入 →
-            </button>
-          </div>
-
-          <div
-            onClick={() => navigate('/history')}
-            className={`bg-white p-6 rounded-lg shadow-lg hover:shadow-xl transition cursor-pointer ${true ? 'ring-2 ring-blue-500' : ''}`}
-          >
-            <div className="text-4xl mb-4">📋</div>
-            <h2 className="text-xl font-bold mb-2">借阅记录</h2>
-            <p className="text-gray-500 text-sm mb-4">查看我的借阅历史</p>
-            <button className="w-full bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600 transition">
-              进入 →
-            </button>
-          </div>
-
-          <div
-            onClick={() => navigate('/announcements')}
-            className="bg-white p-6 rounded-lg shadow-lg hover:shadow-xl transition cursor-pointer"
-          >
-            <div className="text-4xl mb-4">📢</div>
-            <h2 className="text-xl font-bold mb-2">公告通知</h2>
-            <p className="text-gray-500 text-sm mb-4">查看图书馆公告</p>
-            <button className="w-full bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600 transition">
-              进入 →
-            </button>
-          </div>
-        </div>
-
-        {message && (
-          <div className={`p-4 mb-6 rounded-lg ${message.includes('成功') || message.includes('已') ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-            {message}
-          </div>
-        )}
-
-        {history.length === 0 ? (
-          <div className="bg-white rounded-lg shadow p-8 text-center text-gray-500">
-            暂无借阅记录
-          </div>
-        ) : (
-          <div className="bg-white rounded-lg shadow overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">书名</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">作者</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">借阅日期</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">截止日期</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">归还日期</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">状态</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">操作</th>
-                  </tr>
-                </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
-                  {history.map((loan) => {
-                    const bookId = loan.copy?.book?.id;
-                    const existingRating = userRatings[bookId];
-                    return (
-                      <tr key={loan.id} className="hover:bg-gray-50">
-                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{loan.copy?.book?.title || 'Unknown'}</td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{loan.copy?.book?.author || 'Unknown'}</td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{new Date(loan.checkoutDate).toLocaleDateString()}</td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{new Date(loan.dueDate).toLocaleDateString()}</td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{loan.returnDate ? new Date(loan.returnDate).toLocaleDateString() : '-'}</td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <span className={`px-2 py-1 text-xs font-medium text-white rounded-full ${getStatusColor(loan)}`}>
-                            {getStatusText(loan)}
-                          </span>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm">
-                          {loan.returnDate ? (
-                            <div className="flex flex-col gap-1">
-                              {existingRating ? (
-                                <div className="flex items-center gap-2">
-                                  <StarRating value={existingRating.stars} size="sm" />
-                                  <button
-                                    onClick={() => openRatingModal(loan)}
-                                    className="text-xs text-blue-500 hover:text-blue-700"
-                                  >
-                                    编辑
-                                  </button>
-                                  <button
-                                    onClick={() => handleDeleteRating(bookId)}
-                                    className="text-xs text-red-500 hover:text-red-700"
-                                  >
-                                    删除
-                                  </button>
-                                </div>
-                              ) : (
+      ) : (
+        <div className="bg-white rounded-lg shadow overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">书名</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">作者</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">借阅日期</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">截止日期</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">归还日期</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">状态</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">操作</th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {history.map((loan) => {
+                  const bookId = loan.copy?.book?.id;
+                  const existingRating = userRatings[bookId];
+                  return (
+                    <tr key={loan.id} className="hover:bg-gray-50">
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{loan.copy?.book?.title || 'Unknown'}</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{loan.copy?.book?.author || 'Unknown'}</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{new Date(loan.checkoutDate).toLocaleDateString()}</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{new Date(loan.dueDate).toLocaleDateString()}</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{loan.returnDate ? new Date(loan.returnDate).toLocaleDateString() : '-'}</td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span className={`px-2 py-1 text-xs font-medium text-white rounded-full ${getStatusColor(loan)}`}>
+                          {getStatusText(loan)}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm">
+                        {loan.returnDate ? (
+                          <div className="flex flex-col gap-1">
+                            {existingRating ? (
+                              <div className="flex items-center gap-2">
+                                <StarRating value={existingRating.stars} size="sm" />
                                 <button
                                   onClick={() => openRatingModal(loan)}
-                                  className="px-2 py-1 bg-yellow-400 text-white text-xs rounded hover:bg-yellow-500 transition"
+                                  className="text-xs text-blue-500 hover:text-blue-700"
                                 >
-                                  ⭐ 评分与评价
+                                  编辑
                                 </button>
-                              )}
-                            </div>
-                          ) : (
-                            <div className="flex gap-2">
-                              {canRenew(loan) && (
                                 <button
-                                  onClick={() => handleRenew(loan.copyId)}
-                                  className="px-2 py-1 bg-green-500 text-white text-xs rounded hover:bg-green-600 transition"
+                                  onClick={() => handleDeleteRating(bookId)}
+                                  className="text-xs text-red-500 hover:text-red-700"
                                 >
-                                  续借
+                                  删除
                                 </button>
-                              )}
+                              </div>
+                            ) : (
                               <button
-                                onClick={() => handleReturn(loan.id)}
-                                className={`px-2 py-1 text-xs rounded hover:opacity-80 transition ${
-                                  needsFinePayment(loan)
-                                    ? 'bg-orange-500 text-white hover:bg-orange-600' 
-                                    : 'bg-red-500 text-white hover:bg-red-600'
-                                }`}
+                                onClick={() => openRatingModal(loan)}
+                                className="px-2 py-1 bg-yellow-400 text-white text-xs rounded hover:bg-yellow-500 transition"
                               >
-                                {needsFinePayment(loan)
-                                  ? `归还并支付 ¥${getEstimatedFine(loan).toFixed(2)} 罚款` 
-                                  : '归还'
-                                }
+                                ⭐ 评分与评价
                               </button>
-
-                            </div>
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
+                            )}
+                          </div>
+                        ) : (
+                          <div className="flex gap-2">
+                            {canRenew(loan) && (
+                              <button
+                                onClick={() => handleRenew(loan.copyId)}
+                                className="px-2 py-1 bg-green-500 text-white text-xs rounded hover:bg-green-600 transition"
+                              >
+                                续借
+                              </button>
+                            )}
+                            <button
+                              onClick={() => handleReturn(loan.id)}
+                              className={`px-2 py-1 text-xs rounded hover:opacity-80 transition ${
+                                needsFinePayment(loan)
+                                  ? 'bg-orange-500 text-white hover:bg-orange-600' 
+                                  : 'bg-red-500 text-white hover:bg-red-600'
+                              }`}
+                            >
+                              {needsFinePayment(loan)
+                                ? `归还并支付 ¥${getEstimatedFine(loan).toFixed(2)} 罚款` 
+                                : '归还'
+                              }
+                            </button>
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
-        )}
-      </main>
+        </div>
+      )}
 
       {showRatingModal && selectedBook && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
@@ -579,13 +484,11 @@ function MyHistory() {
         </div>
       )}
 
-      {/* 支付弹窗 */}
       {showPaymentModal && selectedLoan && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-xl p-6 max-w-lg w-full mx-4 shadow-2xl">
             <h2 className="text-xl font-bold text-gray-800 mb-4">支付罚款</h2>
             
-            {/* 支付信息 */}
             <div className="mb-4 p-4 bg-gray-50 rounded-lg">
               <p className="text-sm text-gray-600">
                 <strong>书籍：</strong>{selectedLoan.bookTitle}
@@ -595,7 +498,6 @@ function MyHistory() {
               </p>
             </div>
 
-            {/* 支付方式选择 */}
             {!paymentSuccess && (
               <div className="mb-4">
                 <label className="block text-sm font-medium text-gray-700 mb-2">选择支付方式</label>
@@ -636,7 +538,6 @@ function MyHistory() {
               </div>
             )}
 
-            {/* 支付成功 */}
             {paymentSuccess && (
               <div className="mb-4 text-center">
                 <div className="text-green-500 text-4xl mb-4">✓</div>
@@ -678,7 +579,7 @@ function MyHistory() {
           </div>
         </div>
       )}
-    </div>
+    </ReaderLayout>
   );
 }
 

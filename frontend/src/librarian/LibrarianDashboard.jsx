@@ -2,7 +2,8 @@ import { useState, useEffect } from 'react'
 import LibrarianBookManager from './LibrarianBookManager'
 import LibrarianBorrow from './LibrarianBorrow'
 import LibrarianReturnBooks from './LibrarianReturnBooks'
-import LibrarianSearchBorrowHistory from './LibrarianSearchBorrowHistory' 
+import LibrarianSearchBorrowHistory from './LibrarianSearchBorrowHistory'
+import LibrarianMessages from './LibrarianMessages'
 import { API_URL, getAuthHeaders } from './api'
 
 export default function LibrarianDashboard({ librarian, onLogout }) {
@@ -126,6 +127,13 @@ useEffect(() => {
     if (activeTab === 'borrowHistory') {
       return (
         <LibrarianSearchBorrowHistory onBack={() => setActiveTab('home')} />
+      )
+    }
+    
+    // 消息系统页面
+    if (activeTab === 'messages') {
+      return (
+        <LibrarianMessages />
       )
     }
     
@@ -255,6 +263,19 @@ useEffect(() => {
               进入历史查询 <span className="ml-2">→</span>
             </div>
           </div>
+
+          {/* 消息系统卡片 */}
+          <div 
+            className="bg-white p-6 rounded-xl shadow-lg hover:shadow-xl transition cursor-pointer border-2 border-transparent hover:border-indigo-300"
+            onClick={() => setActiveTab('messages')}
+          >
+            <div className="text-5xl mb-4">💬</div>
+            <h2 className="text-xl font-bold mb-2 text-gray-800">消息系统</h2>
+            <p className="text-gray-500 text-sm mb-4">与读者沟通、回复咨询、发送通知、管理站内消息</p>
+            <div className="flex items-center text-indigo-500 font-semibold">
+              进入消息系统 <span className="ml-2">→</span>
+            </div>
+          </div>
         </div>
 
         {/* 快捷提示 */}
@@ -345,6 +366,17 @@ useEffect(() => {
                   }`}
                 >
                   借阅历史
+                </button>
+                {/* 添加消息系统按钮 */}
+                <button
+                  onClick={() => setActiveTab('messages')}
+                  className={`px-3 py-1.5 rounded-lg text-sm transition ${
+                    activeTab === 'messages' 
+                      ? 'bg-blue-500 text-white' 
+                      : 'text-gray-600 hover:bg-gray-100'
+                  }`}
+                >
+                  消息系统
                 </button>
               </div>
 

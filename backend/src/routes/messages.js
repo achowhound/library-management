@@ -425,9 +425,15 @@ router.delete('/:messageId', requireMessageAuth, async (req, res) => {
 // 获取图书馆工作人员列表
 router.get('/staff', requireMessageAuth, async (req, res) => {
   try {
+    const currentUserId = req.user.id;
+    
+    // 获取所有 LIBRARIAN 角色的用户，但排除当前登录用户
     const staff = await prisma.user.findMany({
       where: {
-        role: 'LIBRARIAN'
+        role: 'LIBRARIAN',
+        NOT: {
+          id: currentUserId
+        }
       },
       select: {
         id: true,
