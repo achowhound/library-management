@@ -93,6 +93,55 @@ export default function LibrarianReturnBooks({ onBack }) {
     }
   }
 
+  const handleRenew = async (loanId) => {
+    if (!window.confirm('确认要为该借阅记录办理续借吗？')) {
+      return
+    }
+
+    try {
+      setActionLoanId(loanId)
+      setError('')
+      setMessage('')
+
+      const response = await fetch(`${API_URL}/loans/renew`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ loanId }),
+      })
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.message || '续借失败')
+      }
+
+      const renewedLoan = data.loan
+      const dueDateText = renewedLoan?.dueDate
+        ? new Date(renewedLoan.dueDate).toLocaleDateString()
+        : '-'
+      const renewCountText = typeof renewedLoan?.renewCount === 'number'
+        ? `（第 ${renewedLoan.renewCount} 次续借）`
+        : ''
+
+      setMessage(`✅ 续借成功，新应还日期：${dueDateText}${renewCountText}`)
+
+      setScannedLoans(prev => prev.map((loan) => {
+        if (loan.id !== loanId) return loan
+        return {
+          ...loan,
+          dueDate: renewedLoan?.dueDate || loan.dueDate,
+          renewCount: renewedLoan?.renewCount ?? loan.renewCount ?? 0,
+        }
+      }))
+
+      await fetchActiveLoans()
+      setTimeout(() => setMessage(''), 3000)
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setActionLoanId(null)
+    }
+  }
+
   const scanLoan = async () => {
     setError('')
     setMessage('')
@@ -384,6 +433,10 @@ export default function LibrarianReturnBooks({ onBack }) {
                       {new Date(loan.dueDate).toLocaleDateString()}
                     </span>
                   </div>
+                  <div>
+                    <span className="text-gray-500 text-sm">续借次数：</span>
+                    <span>{loan.renewCount || 0} / 2</span>
+                  </div>
                 </div>
                 {loan.isOverdue && (
                   <div className="mt-2 p-2 bg-red-100 rounded-lg">
@@ -393,6 +446,13 @@ export default function LibrarianReturnBooks({ onBack }) {
                   </div>
                 )}
                 <div className="flex gap-3 mt-3">
+                  <button
+                    onClick={() => handleRenew(loan.id)}
+                    disabled={actionLoanId === loan.id}
+                    className="flex-1 bg-indigo-500 text-white py-2 rounded-lg hover:bg-indigo-600 transition disabled:opacity-50 font-semibold"
+                  >
+                    {actionLoanId === loan.id ? '处理中...' : '🔁 续借'}
+                  </button>
                   <button
                     onClick={() => handleQuickReturn(loan.id, false)}
                     disabled={actionLoanId === loan.id}
@@ -478,12 +538,22 @@ export default function LibrarianReturnBooks({ onBack }) {
                               在借中
                             </span>
                           )}
+                          <div className="text-xs text-gray-500 mt-1">
+                            续借 {loan.renewCount || 0} / 2
+                          </div>
                         </td>
                         <td className={`px-3 py-3 ${estimatedFine > 0 ? 'text-red-600 font-semibold' : 'text-gray-500'}`}>
                           {formatCurrency(estimatedFine)}
                         </td>
                         <td className="px-3 py-3">
                           <div className="flex gap-2">
+                            <button
+                              onClick={() => handleRenew(loan.id)}
+                              disabled={actionLoanId === loan.id}
+                              className="px-3 py-1.5 bg-indigo-500 text-white rounded-lg hover:bg-indigo-600 transition disabled:opacity-50 text-xs"
+                            >
+                              {actionLoanId === loan.id ? '处理中' : '续借'}
+                            </button>
                             <button
                               onClick={() => handleReturn(loan.id, false)}
                               disabled={actionLoanId === loan.id}

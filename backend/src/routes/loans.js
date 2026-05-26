@@ -19,6 +19,8 @@ const {
 const router = express.Router();
 
 const LOAN_DURATION_DAYS = 30;
+const RENEW_DAYS = 14;
+const MAX_RENEW_COUNT = 2;
 
 // 生成借阅条形码 BC-xxxxxx-xxx 格式
 function generateLoanBarcode() {
@@ -620,6 +622,71 @@ router.post('/return', requireAuth, checkLibrarianOrAdmin, async (req, res) => {
   } catch (error) {
     console.error('Return book error:', error);
     res.status(500).json({ success: false, message: '还书失败' });
+  }
+});
+
+// 续借（馆员）
+router.post('/renew', requireAuth, checkLibrarianOrAdmin, async (req, res) => {
+  try {
+    const { loanId } = req.body;
+    if (!loanId) {
+      return res.status(400).json({ success: false, message: '请选择要续借的借阅记录' });
+    }
+
+    const loan = await prisma.loan.findUnique({
+      where: { id: Number(loanId) },
+      include: {
+        user: { select: { id: true, name: true, studentId: true } },
+        copy: { include: { book: { select: { id: true, title: true, isbn: true } } } }
+      }
+    });
+
+    if (!loan) {
+      return res.status(404).json({ success: false, message: '借阅记录不存在' });
+    }
+
+    if (loan.returnDate) {
+      return res.status(400).json({ success: false, message: '该图书已经归还，无法续借' });
+    }
+
+    const currentRenewCount = Number(loan.renewCount || 0);
+    if (currentRenewCount >= MAX_RENEW_COUNT) {
+      return res.status(400).json({ success: false, message: `续借次数已达上限（最多${MAX_RENEW_COUNT}次）` });
+    }
+
+    const oldDueDate = loan.dueDate;
+    const newDueDate = new Date(oldDueDate);
+    newDueDate.setDate(newDueDate.getDate() + RENEW_DAYS);
+
+    const updatedLoan = await prisma.loan.update({
+      where: { id: Number(loanId) },
+      data: {
+        dueDate: newDueDate,
+        renewCount: currentRenewCount + 1
+      }
+    });
+
+    writeAuditLog({
+      userId: req.user.id,
+      action: 'RENEW_BOOK',
+      entity: 'Loan',
+      entityId: Number(loanId),
+      detail: `馆员为学生 ${loan.user.name} 续借《${loan.copy.book.title}》，到期日从 ${oldDueDate.toISOString().slice(0, 10)} 延长到 ${newDueDate.toISOString().slice(0, 10)}`,
+    });
+
+    res.json({
+      success: true,
+      message: `续借成功，应还日期已延长 ${RENEW_DAYS} 天`,
+      loan: {
+        id: updatedLoan.id,
+        oldDueDate,
+        dueDate: updatedLoan.dueDate,
+        renewCount: updatedLoan.renewCount
+      }
+    });
+  } catch (error) {
+    console.error('Renew book error:', error);
+    res.status(500).json({ success: false, message: '续借失败' });
   }
 });
 
