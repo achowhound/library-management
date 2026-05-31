@@ -16,7 +16,8 @@ function extractBearerToken(authorizationHeader) {
 }
 
 async function requireAuth(req, res, next) {
-  const token = extractBearerToken(req.headers.authorization);
+  const token = extractBearerToken(req.headers.authorization)
+    || (typeof req.query.token === 'string' ? req.query.token.trim() : null);
 
   if (!token) {
     return res.status(401).json({

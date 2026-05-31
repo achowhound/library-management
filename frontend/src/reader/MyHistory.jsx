@@ -20,8 +20,9 @@ function MyHistory() {
   const [selectedLoan, setSelectedLoan] = useState(null);
   const [paymentAmount, setPaymentAmount] = useState(0);
   const [paymentProcessing, setPaymentProcessing] = useState(false);
-  const [paymentMethod, setPaymentMethod] = useState('wechat');
+  const [paymentMethod, setPaymentMethod] = useState('alipay');
   const [paymentSuccess, setPaymentSuccess] = useState(false);
+  const [pendingReturnLoan, setPendingReturnLoan] = useState(null);
 
   const navigate = useNavigate();
 
@@ -36,7 +37,58 @@ function MyHistory() {
     }
     fetchHistory();
     fetchUserRatings();
+    syncPaymentFromReturnUrl();
   }, []);
+
+  const syncPaymentFromReturnUrl = async () => {
+    const params = new URLSearchParams(window.location.search);
+    const finePaid = params.get('fine_paid');
+    if (finePaid === '1') {
+      window.history.replaceState({}, '', window.location.pathname);
+      setMessage('罚款支付成功！（模拟）');
+      const pendingId = sessionStorage.getItem('pendingReturnLoanId');
+      if (pendingId) {
+        executeReturn(parseInt(pendingId, 10));
+        sessionStorage.removeItem('pendingReturnLoanId');
+      }
+      fetchHistory();
+      return;
+    }
+
+    const outTradeNo = params.get('out_trade_no');
+    if (!outTradeNo || !outTradeNo.startsWith('FINE')) return;
+
+    window.history.replaceState({}, '', window.location.pathname);
+
+    const token = localStorage.getItem('token');
+    if (!token) return;
+
+    try {
+      const response = await fetch('http://localhost:3001/api/reader/pay-fine/sync', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({ outTradeNo }),
+      });
+      const data = await response.json();
+
+      if (response.ok && data.paid) {
+        setMessage('罚款支付成功！');
+        const pendingId = sessionStorage.getItem('pendingReturnLoanId');
+        if (pendingId) {
+          await executeReturn(parseInt(pendingId, 10));
+          sessionStorage.removeItem('pendingReturnLoanId');
+        }
+        fetchHistory();
+      } else {
+        setMessage(data.message || '支付状态确认失败，请稍后刷新页面');
+      }
+    } catch (error) {
+      setMessage('支付状态确认失败，请稍后刷新页面');
+    }
+  };
 
   const fetchHistory = async () => {
     try {
@@ -118,6 +170,20 @@ function MyHistory() {
   };
 
   const handleReturn = async (loanId) => {
+    const loan = history.find(l => l.id === loanId);
+    
+    // 如果有罚款需要支付，先显示支付弹窗，不立即归还
+    if (needsFinePayment(loan)) {
+      setSelectedLoan(loan);
+      setPaymentAmount(getEstimatedFine(loan));
+      setPaymentMethod('alipay');
+      setPaymentSuccess(false);
+      setPendingReturnLoan(loanId); // 标记这是待归还的订单
+      setShowPaymentModal(true);
+      return;
+    }
+    
+    // 没有罚款，直接执行归还
     const token = localStorage.getItem('token');
     try {
       const response = await fetch(`http://localhost:3001/api/reader/return/${loanId}`, {
@@ -126,16 +192,8 @@ function MyHistory() {
       });
       const data = await response.json();
       if (response.ok && data.success) {
-        if (data.loan && data.loan.fineAmount > 0 && !data.loan.finePaid) {
-          setSelectedLoan(data.loan);
-          setPaymentAmount(data.loan.fineAmount);
-          setPaymentMethod('wechat');
-          setPaymentSuccess(false);
-          setShowPaymentModal(true);
-        } else {
-          setMessage(data.message || '归还成功！');
-          fetchHistory();
-        }
+        setMessage(data.message || '归还成功！');
+        fetchHistory();
       } else {
         setMessage(data.message || '归还失败');
       }
@@ -145,41 +203,45 @@ function MyHistory() {
     setTimeout(() => setMessage(''), 3000);
   };
 
-  const handleConfirmPayment = async () => {
-    if (!selectedLoan) return;
-    
-    setPaymentProcessing(true);
+  const executeReturn = async (loanId) => {
     const token = localStorage.getItem('token');
-    
     try {
-      const response = await fetch(`http://localhost:3001/api/reader/pay-fine/${selectedLoan.id}`, {
+      const response = await fetch(`http://localhost:3001/api/reader/return/${loanId}`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({ paymentMethod })
+        headers: { 'Authorization': `Bearer ${token}` }
       });
-      
       const data = await response.json();
       if (response.ok && data.success) {
-        setPaymentSuccess(true);
-        setMessage(`支付成功！已支付罚款 ¥${paymentAmount.toFixed(2)}`);
-        setTimeout(() => {
-          setShowPaymentModal(false);
-          fetchHistory();
-        }, 2000);
+        setMessage(data.message || '归还成功！');
       } else {
-        setMessage(data.message || '支付失败');
+        setMessage(data.message || '归还失败');
       }
     } catch (error) {
-      setMessage('支付失败，请稍后重试');
+      setMessage('归还失败');
     }
-    setPaymentProcessing(false);
+  };
+
+  const handleConfirmPayment = async () => {
+    if (!selectedLoan) return;
+
+    setPaymentProcessing(true);
+    const token = localStorage.getItem('token');
+    if (!token) {
+      navigate('/login');
+      return;
+    }
+
+    if (pendingReturnLoan) {
+      sessionStorage.setItem('pendingReturnLoanId', String(pendingReturnLoan));
+    }
+
+    const payUrl = `http://localhost:3001/api/reader/pay-fine/${selectedLoan.id}?token=${encodeURIComponent(token)}`;
+    window.location.assign(payUrl);
   };
 
   const closePaymentModal = () => {
     setShowPaymentModal(false);
+    setPendingReturnLoan(null); // 取消支付时清空待归还状态
   };
 
   const openRatingModal = (loan) => {
@@ -491,7 +553,7 @@ function MyHistory() {
             
             <div className="mb-4 p-4 bg-gray-50 rounded-lg">
               <p className="text-sm text-gray-600">
-                <strong>书籍：</strong>{selectedLoan.bookTitle}
+                <strong>书籍：</strong>{selectedLoan.copy?.book?.title || 'Unknown'}
               </p>
               <p className="text-lg font-bold text-red-600 mt-2">
                 罚款金额：¥{paymentAmount.toFixed(2)}
@@ -499,25 +561,16 @@ function MyHistory() {
             </div>
 
             {!paymentSuccess && (
+              <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800">
+                <p className="font-medium mb-1">沙箱支付提示</p>
+                <p>请用开放平台「沙箱账号」里的<strong>买家账号</strong>登录，不要用日常支付宝或商家账号。扫码需安装「支付宝沙箱版」App（Android）。</p>
+              </div>
+            )}
+
+            {!paymentSuccess && (
               <div className="mb-4">
                 <label className="block text-sm font-medium text-gray-700 mb-2">选择支付方式</label>
                 <div className="flex gap-4">
-                  <label className="flex items-center cursor-pointer">
-                    <input
-                      type="radio"
-                      name="paymentMethod"
-                      value="wechat"
-                      checked={paymentMethod === 'wechat'}
-                      onChange={(e) => setPaymentMethod(e.target.value)}
-                      className="sr-only"
-                    />
-                    <div className={`flex items-center gap-2 px-4 py-2 border-2 rounded-lg transition ${
-                      paymentMethod === 'wechat' ? 'border-green-500 bg-green-50' : 'border-gray-300'
-                    }`}>
-                      <span className="text-2xl">💚</span>
-                      <span>微信支付</span>
-                    </div>
-                  </label>
                   <label className="flex items-center cursor-pointer">
                     <input
                       type="radio"

@@ -7,6 +7,12 @@ const {
   buildReturnSummary,
 } = require('../lib/fines');
 
+// 引入支付宝 SDK
+const alipaySdk = require('./alipay');
+const buildPagePayUrl = alipaySdk.buildPagePayUrl;
+const { getAlipayReturnUrl, getAlipayNotifyUrl, getFrontendUrl } = alipaySdk;
+
+
 const router = express.Router();
 
 const MAX_BORROW_LIMIT = 5;
@@ -41,6 +47,189 @@ async function writeAuditLog(data) {
     await prisma.auditLog.create({ data });
   } catch (error) {
     console.warn('Failed to write audit log:', error.message);
+  }
+}
+
+function parseLoanIdFromOutTradeNo(outTradeNo) {
+  const underscored = outTradeNo.match(/^FINE_(\d+)_\d+$/);
+  if (underscored) return parseInt(underscored[1], 10);
+
+  // 兼容旧格式 FINE{loanId}{13位时间戳}，如 FINE151780239870831
+  const compact = outTradeNo.match(/^FINE(\d+?)(\d{13})$/);
+  if (compact) return parseInt(compact[1], 10);
+
+  return NaN;
+}
+
+async function completeReturnAfterFinePaid(loanId) {
+  const loan = await prisma.loan.findFirst({
+    where: { id: loanId, returnDate: null },
+    include: { copy: { include: { book: true } }, user: true },
+  });
+  if (!loan) return;
+
+  const fineRatePerDay = await getFineRatePerDay();
+  const returnDate = new Date();
+  const returnSummary = buildReturnSummary(loan, returnDate, fineRatePerDay, { waiveFine: false });
+
+  await prisma.loan.update({
+    where: { id: loanId },
+    data: {
+      returnDate,
+      fineAmount: returnSummary.fineAmount,
+      finePaid: returnSummary.fineAmount > 0 ? true : loan.finePaid,
+      fineForgiven: returnSummary.fineForgiven,
+    },
+  });
+
+  await prisma.copy.update({
+    where: { id: loan.copyId },
+    data: { status: 'AVAILABLE' },
+  });
+
+  writeAuditLog({
+    userId: loan.userId,
+    action: 'RETURN_BOOK',
+    entity: 'Loan',
+    entityId: loanId,
+    detail: `读者 ${loan.user.email} 支付罚款后自动还书(借阅记录 ${loanId})，罚款 ¥${returnSummary.fineAmount.toFixed(2)}`,
+  });
+}
+
+async function markFineAsPaid(loanId, amount, source) {
+  const loan = await prisma.loan.findUnique({
+    where: { id: loanId },
+    include: { user: true },
+  });
+  if (!loan) {
+    console.error(`markFineAsPaid: 借阅记录 ${loanId} 不存在，请检查订单号解析是否正确`);
+    return false;
+  }
+
+  await prisma.loan.update({
+    where: { id: loanId },
+    data: {
+      finePaid: true,
+      fineForgiven: false,
+    },
+  });
+
+  writeAuditLog({
+    userId: loan.userId,
+    action: 'FINE_PAYMENT',
+    entity: 'Loan',
+    entityId: loanId,
+    detail: `用户通过支付宝(${source})支付了借阅记录 ${loanId} 的罚款 ¥${amount}`,
+  });
+
+  if (!loan.returnDate) {
+    await completeReturnAfterFinePaid(loanId);
+  }
+
+  return true;
+}
+
+async function handlePayFine(req, res) {
+  try {
+    const loanId = parseInt(req.params.loanId);
+
+    let loan = await prisma.loan.findFirst({
+      where: {
+        id: loanId,
+        userId: req.user.id,
+      },
+      include: {
+        copy: {
+          include: {
+            book: true,
+          },
+        },
+      },
+    });
+
+    if (!loan) {
+      return res.status(404).json({
+        success: false,
+        message: '借阅记录不存在或不属于当前用户',
+      });
+    }
+
+    if (loan.finePaid) {
+      return res.status(400).json({
+        success: false,
+        message: '罚款已经支付',
+      });
+    }
+
+    let calculatedFineAmount = Number(loan.fineAmount || 0);
+    if (!loan.returnDate) {
+      const fineRatePerDay = await getFineRatePerDay();
+      const returnDate = new Date();
+      const returnSummary = buildReturnSummary(loan, returnDate, fineRatePerDay, { waiveFine: false });
+      calculatedFineAmount = returnSummary.fineAmount;
+
+      await prisma.loan.update({
+        where: { id: loanId },
+        data: {
+          fineAmount: calculatedFineAmount,
+          finePaid: false,
+          fineForgiven: returnSummary.fineForgiven,
+        },
+      });
+    }
+
+    if (!calculatedFineAmount || calculatedFineAmount <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: '该借阅记录没有罚款需要支付',
+      });
+    }
+
+    loan = { ...loan, fineAmount: calculatedFineAmount };
+
+    const outTradeNo = `FINE_${loanId}_${Date.now()}`;
+    const notifyUrl = getAlipayNotifyUrl();
+    const returnUrl = getAlipayReturnUrl();
+
+    if (process.env.ALIPAY_MOCK_PAY === 'true') {
+      await markFineAsPaid(loanId, loan.fineAmount.toFixed(2), 'mock');
+      console.log('⚠️ ALIPAY_MOCK_PAY 已开启，跳过真实支付');
+      return res.redirect(`${getFrontendUrl()}/history?fine_paid=1&out_trade_no=${outTradeNo}`);
+    }
+
+    const payParams = {
+      bizContent: {
+        outTradeNo,
+        productCode: 'FAST_INSTANT_TRADE_PAY',
+        totalAmount: loan.fineAmount.toFixed(2),
+        subject: `LibraryFine${loanId}`,
+        body: `Loan ${loanId} overdue fine`,
+      },
+      returnUrl,
+    };
+
+    if (notifyUrl) {
+      payParams.notifyUrl = notifyUrl;
+    } else {
+      console.warn('⚠️ ALIPAY_NOTIFY_URL 未配置，将仅依赖支付回跳同步确认');
+    }
+
+    console.log('开始生成支付链接...', {
+      loanId,
+      fineAmount: loan.fineAmount.toFixed(2),
+      outTradeNo,
+      returnUrl,
+      notifyUrl: notifyUrl || '(未配置)',
+    });
+
+    const payUrl = buildPagePayUrl('alipay.trade.page.pay', payParams);
+    res.redirect(payUrl);
+  } catch (error) {
+    console.error('支付失败:', error);
+    res.status(500).json({
+      success: false,
+      message: '支付失败，请稍后重试',
+    });
   }
 }
 
@@ -269,7 +458,7 @@ router.post('/return/:loanId', requireAuth, async (req, res) => {
       data: {
         returnDate: returnDate,
         fineAmount: returnSummary.fineAmount,
-        finePaid: returnSummary.fineAmount > 0 ? false : loan.finePaid,
+        finePaid: returnSummary.fineAmount > 0 ? Boolean(loan.finePaid) : true,
         fineForgiven: returnSummary.fineForgiven,
       },
       include: {
@@ -315,91 +504,101 @@ router.post('/return/:loanId', requireAuth, async (req, res) => {
   }
 });
 
-// 支付罚款
-router.post('/pay-fine/:loanId', requireAuth, async (req, res) => {
+// 支付宝同步回跳（公网 HTTPS，再转发到本地前端）
+router.get('/alipay-return', (req, res) => {
+  const query = new URLSearchParams(req.query);
+  const target = new URL('/history', getFrontendUrl());
+  query.forEach((value, key) => target.searchParams.set(key, value));
+  res.redirect(target.toString());
+});
+
+// 支付回跳后主动查询订单状态（notify 不可用时的兜底，须在 :loanId 之前注册）
+router.post('/pay-fine/sync', requireAuth, async (req, res) => {
   try {
-    const loanId = parseInt(req.params.loanId);
-    
-    // 验证借阅记录是否存在且属于当前用户
+    const { outTradeNo } = req.body;
+
+    if (!outTradeNo || !outTradeNo.startsWith('FINE')) {
+      return res.status(400).json({ success: false, message: '无效的订单号' });
+    }
+
+    const loanId = parseLoanIdFromOutTradeNo(outTradeNo);
+    if (!loanId) {
+      return res.status(400).json({ success: false, message: '无效的订单号' });
+    }
+
     const loan = await prisma.loan.findFirst({
-      where: {
-        id: loanId,
-        userId: req.user.id
-      },
-      include: {
-        copy: {
-          include: {
-            book: true
-          }
-        }
-      }
+      where: { id: loanId, userId: req.user.id },
     });
 
     if (!loan) {
-      return res.status(404).json({ 
-        success: false,
-        message: '借阅记录不存在或不属于当前用户' 
-      });
-    }
-
-    // 检查是否有罚款需要支付
-    if (!loan.fineAmount || loan.fineAmount <= 0) {
-      return res.status(400).json({
-        success: false,
-        message: '该借阅记录没有罚款需要支付'
-      });
+      return res.status(404).json({ success: false, message: '借阅记录不存在' });
     }
 
     if (loan.finePaid) {
-      return res.status(400).json({
-        success: false,
-        message: '罚款已经支付'
-      });
+      return res.json({ success: true, paid: true, alreadyPaid: true });
     }
 
-    // 更新罚款支付状态（先更新，确保支付成功）
-    const updatedLoan = await prisma.loan.update({
-      where: { id: loanId },
-      data: {
-        finePaid: true,
-        fineForgiven: false
-      },
-      include: {
-        copy: {
-          include: {
-            book: true
-          }
-        }
-      }
+    const result = await alipaySdk.exec('alipay.trade.query', {
+      bizContent: { outTradeNo },
     });
 
-    // 记录支付日志（使用 try-catch 避免日志失败影响支付）
-    writeAuditLog({
-      userId: req.user.id,
-      action: 'FINE_PAYMENT',
-      entity: 'Loan',
-      entityId: loanId,
-      detail: `用户 ${req.user.name || '未知'} 支付了借阅记录 ${loanId} 的罚款 ¥${loan.fineAmount.toFixed(2)}`,
-    });
+    const tradeStatus = result.tradeStatus;
+    if (tradeStatus === 'TRADE_SUCCESS' || tradeStatus === 'TRADE_FINISHED') {
+      await markFineAsPaid(loanId, result.totalAmount || loan.fineAmount, 'sync');
+      return res.json({ success: true, paid: true });
+    }
 
-    res.json({
-      success: true,
-      message: '罚款支付成功',
-      loan: {
-        id: updatedLoan.id,
-        bookTitle: updatedLoan.copy.book.title,
-        fineAmount: updatedLoan.fineAmount,
-        finePaid: updatedLoan.finePaid,
-        paidAt: new Date().toISOString()
-      }
-    });
-
-  } catch (error) {
-    console.error('支付罚款失败:', error);
-    res.status(500).json({
+    return res.json({
       success: false,
-      message: '支付失败，请稍后重试'
+      paid: false,
+      status: tradeStatus,
+      message: '支付尚未完成，请稍后再试',
     });
+  } catch (error) {
+    console.error('同步支付状态失败:', error);
+    res.status(500).json({ success: false, message: '查询支付状态失败' });
+  }
+});
+
+// 支付罚款（GET 用于浏览器直接跳转，POST 保留兼容）
+router.get('/pay-fine/:loanId', requireAuth, handlePayFine);
+router.post('/pay-fine/:loanId', requireAuth, handlePayFine);
+
+// 支付宝异步通知接口
+router.post('/alipay-notify', async (req, res) => {
+  try {
+    console.log('\n========== 支付宝异步通知报文 ==========');
+    console.log('请求体内容:', JSON.stringify(req.body, null, 2));
+    console.log('==========================================\n');
+
+    const verifyResult = alipaySdk.checkNotifySignV2(req.body);
+
+    console.log('签名验证结果:', verifyResult);
+
+    if (!verifyResult) {
+      console.error('支付宝签名验证失败');
+      return res.status(400).send('sign error');
+    }
+
+    const { out_trade_no, trade_status, total_amount } = req.body;
+
+    if (trade_status === 'TRADE_SUCCESS' || trade_status === 'TRADE_FINISHED') {
+      const loanId = parseLoanIdFromOutTradeNo(out_trade_no);
+      if (!loanId) {
+        console.error('无法从订单号解析 loanId:', out_trade_no);
+        return res.status(400).send('invalid out_trade_no');
+      }
+      const ok = await markFineAsPaid(loanId, total_amount, 'notify');
+      if (!ok) {
+        return res.status(400).send('loan not found');
+      }
+      console.log(`罚款支付成功: 订单号 ${out_trade_no}, 金额 ¥${total_amount}`);
+    }
+
+    res.send('success');
+  } catch (error) {
+    console.error('支付宝通知处理失败:', error);
+    res.status(500).send('error');
   }
 });
 
