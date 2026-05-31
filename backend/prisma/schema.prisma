@@ -44,6 +44,7 @@ model User {
   holds                  Hold[]
   wishlists              Wishlist[]
   auditLogs              AuditLog[]
+  dueReminderLogs        DueReminderLog[]
   announcementPublishers AnnouncementPublisher[]
   sentMessages           Message[]               @relation("MessageSender")  // 站内信（你的功能需要）
   receivedMessages       Message[]               @relation("MessageReceiver")  // 站内信（你的功能需要）
@@ -63,6 +64,7 @@ model Book {
   ratings         Rating[]
   holds           Hold[]
   wishlists       Wishlist[]
+  dueReminderLogs DueReminderLog[]
 }
 
 model Copy {
@@ -96,6 +98,7 @@ model Loan {
   updatedAt    DateTime  @updatedAt
   copy         Copy      @relation(fields: [copyId], references: [id])
   user         User      @relation(fields: [userId], references: [id])
+  dueReminderLogs DueReminderLog[]
 }
 
 model Rating {
@@ -197,4 +200,19 @@ model BackupLog {
   createdAt   DateTime @default(now())
   restoredAt  DateTime?
   createdBy   Int?     // 管理员 userId
+}
+
+model DueReminderLog {
+  id           Int      @id @default(autoincrement())
+  loanId       Int
+  userId       Int
+  bookId       Int
+  email        String
+  status       String
+  errorMessage String?
+  sentAt       DateTime @default(now())
+
+  loan Loan @relation(fields: [loanId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id])
+  book Book @relation(fields: [bookId], references: [id])
 }

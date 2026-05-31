@@ -4,6 +4,8 @@ import LibrarianBorrow from './LibrarianBorrow'
 import LibrarianReturnBooks from './LibrarianReturnBooks'
 import LibrarianSearchBorrowHistory from './LibrarianSearchBorrowHistory'
 import LibrarianMessages from './LibrarianMessages'
+import LibrarianReminderLogs from './LibrarianReminderLogs'
+import LibrarianPendingReminders from './LibrarianPendingReminders'
 import { API_URL, getAuthHeaders } from './api'
 
 export default function LibrarianDashboard({ librarian, onLogout }) {
@@ -134,6 +136,20 @@ useEffect(() => {
     if (activeTab === 'messages') {
       return (
         <LibrarianMessages />
+      )
+    }
+
+    // 到期提醒日志页面
+    if (activeTab === 'reminderLogs') {
+      return (
+        <LibrarianReminderLogs onBack={() => setActiveTab('home')} />
+      )
+    }
+
+    // 需要提醒的读者名单
+    if (activeTab === 'pendingReminders') {
+      return (
+        <LibrarianPendingReminders onBack={() => setActiveTab('home')} />
       )
     }
     
@@ -276,7 +292,28 @@ useEffect(() => {
               进入消息系统 <span className="ml-2">→</span>
             </div>
           </div>
-        </div>
+          <div 
+            className="bg-white p-6 rounded-xl shadow-lg hover:shadow-xl transition border-2 border-transparent hover:border-teal-300"
+            onClick={() => setActiveTab('reminderLogs')}
+          >
+            <div className="text-5xl mb-4">⏰</div>
+            <h2 className="text-xl font-bold mb-2 text-gray-800">到期提醒日志</h2>
+            <p className="text-gray-500 text-sm mb-4">查看自动提醒发送记录，并手动执行提醒任务。</p>
+            <div className="flex items-center text-teal-500 font-semibold">
+              查看提醒日志 <span className="ml-2">→</span>
+            </div>
+          </div>      
+            <div
+            className="bg-white p-6 rounded-xl shadow-lg hover:shadow-xl transition border-2 border-transparent hover:border-yellow-300 cursor-pointer"
+            onClick={() => setActiveTab('pendingReminders')}
+          >
+            <div className="text-5xl mb-4">📝</div>
+            <h2 className="text-xl font-bold mb-2 text-gray-800">待提醒名单</h2>
+            <p className="text-gray-500 text-sm mb-4">查看即将到期且未续借的读者名单，一键发送提醒。</p>
+            <div className="flex items-center text-yellow-500 font-semibold">查看名单 <span className="ml-2">→</span></div>
+          </div>
+            </div>
+
 
         {/* 快捷提示 */}
         <div className="mt-8 bg-blue-50 rounded-xl p-4 border border-blue-200">
@@ -366,6 +403,16 @@ useEffect(() => {
                   }`}
                 >
                   借阅历史
+                </button>
+                <button
+                  onClick={() => setActiveTab('reminderLogs')}
+                  className={`px-3 py-1.5 rounded-lg text-sm transition ${
+                    activeTab === 'reminderLogs' 
+                      ? 'bg-blue-500 text-white' 
+                      : 'text-gray-600 hover:bg-gray-100'
+                  }`}
+                >
+                  到期提醒日志
                 </button>
                 {/* 添加消息系统按钮 */}
                 <button
