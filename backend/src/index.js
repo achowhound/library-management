@@ -3,6 +3,11 @@ require('dotenv').config();
 const prisma = require('./lib/prisma');
 const express = require('express');
 const cors = require('cors');
+const cron = require('node-cron');
+
+// 引入邮件和提醒服务
+const { initEmailService } = require('./lib/email');
+const { checkAndSendReminders } = require('./lib/reminder');
 
 // 1. 引入路由文件
 const booksRouter = require('./routes/books');
@@ -19,6 +24,7 @@ const statisticsRoutes = require('./routes/statistics');// 你的：统计路由
 const configRouter = require('./routes/config');
 const backupsRouter = require("./routes/backups");
 const blocklistRouter = require("./routes/blocklist");
+const remindersRouter = require('./routes/reminders');  // 图书到期提醒路由
 const backupService = require("./services/backup");
 
 const app = express();
@@ -47,6 +53,7 @@ app.use('/api/readers', readersRouter);
 app.use('/loans', loansRouter);
 app.use('/api/reader', readerBorrowRouter);
 app.use('/api/librarian/search-history', librarianSearchBorrowHistory);  // 馆员搜索历史（你的）
+app.use('/api/librarian/reminders', remindersRouter);                   // 图书到期提醒路由
 app.use('/api/statistics', statisticsRoutes);                            // 统计路由（你的）
 app.use('/api/config', configRouter);                                        // 系统配置
 app.use('/api/backups', backupsRouter);                                      // 数据库备份
@@ -78,6 +85,7 @@ const BACKUP_INTERVAL_MS = (() => {
 })();
 
 let backupTimer = null;
+let reminderScheduler = null; // 定时任务句柄
 
 function scheduleNextBackup() {
     backupTimer = setTimeout(async () => {
@@ -89,6 +97,35 @@ function scheduleNextBackup() {
         }
         scheduleNextBackup();
     }, BACKUP_INTERVAL_MS);
+}
+
+/**
+ * 启动图书到期提醒定时任务
+ * 每日在指定时间执行提醒检查
+ */
+function startReminderScheduler() {
+    // 使用 cron 表达式：每天凌晨 2 点执行 ("0 2 * * *")
+    // 也可以改为其他时间，例如每天 8 点："0 8 * * *"
+    const reminderCronTime = process.env.REMINDER_CRON_TIME || '0 8 * * *'; // 默认每天8点执行
+
+    console.log(`⏰ 图书到期提醒任务已启动，执行时间表: ${reminderCronTime}`);
+
+    reminderScheduler = cron.schedule(reminderCronTime, async () => {
+        console.log(`\n⏰ [${new Date().toLocaleString('zh-CN')}] 触发图书到期提醒任务`);
+        
+        try {
+            const result = await checkAndSendReminders();
+            console.log(`✅ 提醒任务执行结果:`, result);
+        } catch (error) {
+            console.error(`❌ 提醒任务执行出错:`, error.message);
+        }
+    });
+
+    // 可选：也可以在启动时立即执行一次提醒
+    if (process.env.RUN_REMINDER_ON_START === 'true') {
+        console.log('🔔 正在执行启动时的提醒检查...');
+        checkAndSendReminders();
+    }
 }
 
 function startScheduledBackup() {
@@ -110,7 +147,11 @@ async function startServer() {
         await prisma.$connect();
         console.log('✅ Database connected successfully');
 
+        // 初始化邮件服务
+        await initEmailService();
+
         startScheduledBackup();
+        startReminderScheduler(); // 启动图书到期提醒定时任务
 
         app.listen(port, () => {
             console.log(`
@@ -124,6 +165,7 @@ async function startServer() {
 ║  📋 Loans endpoints: /api/loans/*                     ║
 ║  💾 Backup endpoints: /api/backups/*                  ║
 ║  ⏰ Auto backup every ${BACKUP_INTERVAL_MS / 3600000} hours                    ║
+║  📧 Reminder endpoints: /api/librarian/reminders/*    ║
 ╚═══════════════════════════════════════════════════════╝
       `);
         });
@@ -137,6 +179,9 @@ process.on('SIGINT', async () => {
     console.log('\n👋 Shutting down gracefully...');
     if (backupTimer) {
         clearTimeout(backupTimer);
+    }
+    if (reminderScheduler) {
+        reminderScheduler.stop(); // 停止提醒定时任务
     }
     await prisma.$disconnect();
     process.exit(0);

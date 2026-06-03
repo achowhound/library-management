@@ -20,7 +20,7 @@ function Register() {
     setLoading(true);
 
     try {
-      const res = await fetch('http://localhost:3001/readers/register', {
+      const res = await fetch('http://localhost:3001/api/readers/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(form)

@@ -4,6 +4,7 @@ import LibrarianBorrow from './LibrarianBorrow'
 import LibrarianReturnBooks from './LibrarianReturnBooks'
 import LibrarianSearchBorrowHistory from './LibrarianSearchBorrowHistory'
 import LibrarianMessages from './LibrarianMessages'
+import LibrarianReminders from './LibrarianReminders'
 import { API_URL, getAuthHeaders } from './api'
 
 export default function LibrarianDashboard({ librarian, onLogout }) {
@@ -134,6 +135,21 @@ useEffect(() => {
     if (activeTab === 'messages') {
       return (
         <LibrarianMessages />
+      )
+    }
+    
+    // 图书到期提醒管理页面
+    if (activeTab === 'reminders') {
+      return (
+        <div>
+          <button
+            onClick={() => setActiveTab('home')}
+            className="mb-4 bg-gray-200 text-gray-800 px-4 py-2 rounded-lg hover:bg-gray-300 transition flex items-center gap-2"
+          >
+            <span>←</span> 返回
+          </button>
+          <LibrarianReminders />
+        </div>
       )
     }
     
@@ -276,6 +292,19 @@ useEffect(() => {
               进入消息系统 <span className="ml-2">→</span>
             </div>
           </div>
+
+          {/* 图书到期提醒管理卡片 */}
+          <div 
+            className="bg-white p-6 rounded-xl shadow-lg hover:shadow-xl transition cursor-pointer border-2 border-transparent hover:border-red-300"
+            onClick={() => setActiveTab('reminders')}
+          >
+            <div className="text-5xl mb-4">📧</div>
+            <h2 className="text-xl font-bold mb-2 text-gray-800">到期提醒</h2>
+            <p className="text-gray-500 text-sm mb-4">管理图书到期提醒、查看提醒日志、执行提醒任务</p>
+            <div className="flex items-center text-red-500 font-semibold">
+              进入提醒管理 <span className="ml-2">→</span>
+            </div>
+          </div>
         </div>
 
         {/* 快捷提示 */}
@@ -377,6 +406,17 @@ useEffect(() => {
                   }`}
                 >
                   消息系统
+                </button>
+                {/* 添加提醒管理按钮 */}
+                <button
+                  onClick={() => setActiveTab('reminders')}
+                  className={`px-3 py-1.5 rounded-lg text-sm transition ${
+                    activeTab === 'reminders' 
+                      ? 'bg-blue-500 text-white' 
+                      : 'text-gray-600 hover:bg-gray-100'
+                  }`}
+                >
+                  📧 提醒管理
                 </button>
               </div>
 
