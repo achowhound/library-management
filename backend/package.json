@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "node --openssl-legacy-provider node_modules/nodemon/bin/nodemon.js src/index.js",
     "start": "node --openssl-legacy-provider src/index.js",
+    "send-reminders": "node src/scripts/sendReminders.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "prisma": {
@@ -16,17 +17,19 @@
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
-    "@prisma/client": "6.19.2",
+    "@prisma/client": "^6.19.2",
     "alipay-sdk": "^4.14.0",
     "bcrypt": "^6.0.0",
     "cors": "^2.8.6",
     "dotenv": "^17.3.1",
     "express": "^5.2.1",
     "jsonwebtoken": "^9.0.3",
-    "prisma": "^6.19.3"
+    "node-cron": "^4.2.1",
+    "nodemailer": "^8.0.10"
   },
   "devDependencies": {
     "cross-env": "^10.1.0",
-    "nodemon": "^3.1.14"
+    "nodemon": "^3.1.14",
+    "prisma": "^6.19.3"
   }
 }

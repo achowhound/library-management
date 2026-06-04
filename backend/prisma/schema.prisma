@@ -44,9 +44,11 @@ model User {
   holds                  Hold[]
   wishlists              Wishlist[]
   auditLogs              AuditLog[]
+  dueReminderLogs        DueReminderLog[]
   announcementPublishers AnnouncementPublisher[]
   sentMessages           Message[]               @relation("MessageSender")  // 站内信（你的功能需要）
   receivedMessages       Message[]               @relation("MessageReceiver")  // 站内信（你的功能需要）
+  reminderLogs           ReminderLog[]
 }
 
 model Book {
@@ -63,6 +65,7 @@ model Book {
   ratings         Rating[]
   holds           Hold[]
   wishlists       Wishlist[]
+  dueReminderLogs DueReminderLog[]
 }
 
 model Copy {
@@ -96,6 +99,8 @@ model Loan {
   updatedAt    DateTime  @updatedAt
   copy         Copy      @relation(fields: [copyId], references: [id])
   user         User      @relation(fields: [userId], references: [id])
+  reminderLogs ReminderLog[]
+  dueReminderLogs DueReminderLog[]
 }
 
 model Rating {
@@ -197,4 +202,34 @@ model BackupLog {
   createdAt   DateTime @default(now())
   restoredAt  DateTime?
   createdBy   Int?     // 管理员 userId
+}
+
+// 图书到期提醒日志模型
+model ReminderLog {
+  id            Int      @id @default(autoincrement())
+  userId        Int
+  loanId        Int
+  bookTitle     String   // 图书名称
+  dueDate       DateTime // 图书到期日期
+  sendStatus    String   @default("success") // success, failed
+  sendTime      DateTime @default(now())
+  errorMessage  String?  // 如果发送失败，记录错误信息
+  createdAt     DateTime @default(now())
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  loan          Loan     @relation(fields: [loanId], references: [id], onDelete: Cascade)
+}
+
+model DueReminderLog {
+  id           Int      @id @default(autoincrement())
+  loanId       Int
+  userId       Int
+  bookId       Int
+  email        String
+  status       String
+  errorMessage String?
+  sentAt       DateTime @default(now())
+
+  loan Loan @relation(fields: [loanId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id])
+  book Book @relation(fields: [bookId], references: [id])
 }

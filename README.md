@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 # library-management-system
 Week 1-12 Software PM Course Project
 
@@ -240,7 +239,3 @@ npm -v    # 应显示 10.x.x
 - 添加新依赖时，请确保 `package.json` 中的版本号使用 `^` 或 `~` 合理范围，避免自动升级导致不兼容。
 
 ---
-=======
-# library-management
-SPMclass_project
->>>>>>> 5470b0b04a6c8468ef3f39996609adf76644ce22

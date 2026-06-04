@@ -1,4 +1,5 @@
 const prisma = require('../lib/prisma');
+const { verifyToken } = require('../lib/token');
 const { verifyLibrarianToken } = require('../lib/librarianToken');
 
 // 删除 normalizeQueryResult 和 findLibrarianById 函数（不再需要）
@@ -27,8 +28,15 @@ async function requireLibrarianAuth(req, res, next) {
   }
 
   try {
-    const payload = verifyLibrarianToken(token);
-    const userId = Number(payload.id);
+    let payload;
+
+    try {
+      payload = verifyToken(token);
+    } catch (error) {
+      payload = verifyLibrarianToken(token);
+    }
+
+    const userId = Number(payload.sub || payload.id);
 
     if (!userId) {
       return res.status(401).json({ error: 'Token payload is invalid' });

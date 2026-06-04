@@ -1,6 +1,7 @@
 const express = require('express');
 const prisma = require('../lib/prisma');
 const { requireAuth } = require('../middleware/auth');
+const { runDueReminderJob } = require('../services/dueReminder');
 
 async function writeAuditLog(data) {
   try {
@@ -712,6 +713,124 @@ router.get('/me', requireAuth, async (req, res) => {
     });
   } catch (error) {
     res.status(500).json({ message: '获取借阅记录失败' });
+  }
+});
+
+// 管理员/馆员手动触发到期提醒邮件
+router.post('/reminders/run', requireAuth, checkLibrarianOrAdmin, async (req, res) => {
+  try {
+    const result = await runDueReminderJob();
+    res.json({
+      success: true,
+      message: '到期提醒任务已执行',
+      processed: result.processed,
+      sent: result.sent,
+      failed: result.failed,
+    });
+  } catch (error) {
+    console.error('手动执行到期提醒失败:', error);
+    res.status(500).json({ success: false, message: '到期提醒任务执行失败' });
+  }
+});
+
+// 按借阅ID列表发送提醒（馆员可选择部分发送）
+router.post('/reminders/send', requireAuth, checkLibrarianOrAdmin, async (req, res) => {
+  try {
+    const { loanIds } = req.body || {};
+    if (!Array.isArray(loanIds) || loanIds.length === 0) {
+      return res.status(400).json({ success: false, message: '请提供要发送的 loanIds 列表' });
+    }
+
+    const loans = await prisma.loan.findMany({
+      where: { id: { in: loanIds.map((v) => Number(v)) } },
+      include: { user: true, copy: { include: { book: true } } }
+    });
+
+    let processed = loans.length;
+    let sent = 0;
+    let failed = 0;
+    const perLoan = [];
+
+    // 延迟调用以避免 SMTP 并发峰值
+    for (const loan of loans) {
+      try {
+        const { sendReminderForLoan } = require('../services/dueReminder');
+        const result = await sendReminderForLoan(loan);
+        if (result && result.success) {
+          sent += 1;
+          perLoan.push({ loanId: loan.id, success: true });
+        } else {
+          failed += 1;
+          perLoan.push({ loanId: loan.id, success: false, error: result?.error || '发送失败' });
+        }
+      } catch (err) {
+        failed += 1;
+        perLoan.push({ loanId: loan.id, success: false, error: err.message || String(err) });
+      }
+    }
+
+    res.json({ success: true, processed, sent, failed, perLoan });
+  } catch (error) {
+    console.error('按ID发送提醒失败:', error);
+    res.status(500).json({ success: false, message: '发送提醒失败' });
+  }
+});
+
+// 查询需要提醒的读者名单（尚未发送，只列出符合条件的借阅）
+router.get('/pending-reminders', requireAuth, checkLibrarianOrAdmin, async (req, res) => {
+  try {
+    const now = new Date();
+    const upperBound = new Date(now.getTime() + Number(process.env.DUE_REMINDER_DAYS || '3') * 24 * 60 * 60 * 1000);
+
+    const loans = await prisma.loan.findMany({
+      where: {
+        returnDate: null,
+        renewCount: 0,
+        dueDate: { gte: now, lte: upperBound },
+      },
+      include: {
+        user: { select: { id: true, name: true, studentId: true, email: true } },
+        copy: { include: { book: { select: { id: true, title: true } } } },
+        dueReminderLogs: { orderBy: { sentAt: 'desc' }, take: 1 },
+      },
+      orderBy: { dueDate: 'asc' },
+    });
+
+    const list = loans.map((loan) => ({
+      loanId: loan.id,
+      dueDate: loan.dueDate,
+      user: loan.user,
+      book: loan.copy?.book ? { id: loan.copy.book.id, title: loan.copy.book.title } : null,
+      copyId: loan.copyId,
+      barcode: loan.barcode,
+      lastSentAt: loan.dueReminderLogs && loan.dueReminderLogs.length > 0 ? loan.dueReminderLogs[0].sentAt : null,
+    }));
+
+    res.json({ success: true, count: list.length, reminders: list });
+  } catch (error) {
+    console.error('查询需要提醒的读者名单失败:', error);
+    res.status(500).json({ success: false, message: '查询需要提醒的读者名单失败' });
+  }
+});
+
+// 查询到期提醒发送日志
+router.get('/reminder-logs', requireAuth, checkLibrarianOrAdmin, async (req, res) => {
+  try {
+    const logs = await prisma.dueReminderLog.findMany({
+      orderBy: { sentAt: 'desc' },
+      include: {
+        loan: {
+          select: { id: true, barcode: true, dueDate: true, copy: { include: { book: { select: { id: true, title: true } } } } }
+        },
+        user: { select: { id: true, name: true, email: true } },
+        book: { select: { id: true, title: true } }
+      }
+    });
+
+    res.json({ success: true, logs });
+  } catch (error) {
+    console.error('查询到期提醒日志失败:', error);
+    res.status(500).json({ success: false, message: '查询到期提醒日志失败' });
   }
 });
 
