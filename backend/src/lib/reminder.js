@@ -1,10 +1,11 @@
-﻿/**
+/**
  * 图书到期提醒服务
  * 处理图书到期提醒的核心业务逻辑
  */
 
 const prisma = require('./prisma');
 const { sendDueReminderEmail } = require('./email');
+const bcrypt = require('bcrypt');
 
 /**
  * 检查并发送图书到期提醒
@@ -18,6 +19,42 @@ const { sendDueReminderEmail } = require('./email');
  * @param {boolean} options.force - 是否强制再次发送
  * @returns {Promise<Object>} 执行结果
  */
+async function sendSystemMessage({ receiverId, content }) {
+  try {
+    const systemEmail = 'system@library.local';
+    let systemUser = await prisma.user.findUnique({
+      where: { email: systemEmail },
+    });
+
+    if (!systemUser) {
+      const passwordHash = await bcrypt.hash('system-placeholder-password', 10);
+      systemUser = await prisma.user.create({
+        data: {
+          name: '图书馆系统',
+          email: systemEmail,
+          passwordHash,
+          role: 'ADMIN',
+        },
+      });
+      console.log('✅ 创建系统消息用户成功');
+    }
+
+    await prisma.message.create({
+      data: {
+        senderId: systemUser.id,
+        receiverId,
+        content,
+      },
+    });
+
+    console.log(`💬 站内消息发送成功: 用户 ${receiverId}`);
+    return { success: true };
+  } catch (error) {
+    console.error('发送站内消息失败:', error.message);
+    return { success: false, error: error.message };
+  }
+}
+
 async function checkAndSendReminders({ force = false } = {}) {
   const startTime = new Date();
   console.log(`\n🔔 开始执行图书到期提醒任务: ${startTime.toLocaleString('zh-CN')}`);
@@ -91,12 +128,28 @@ async function checkAndSendReminders({ force = false } = {}) {
           continue;
         }
 
-        const emailResult = await sendDueReminderEmail({
-          email: loan.user.email,
-          readerName: loan.user.name,
-          bookTitle: loan.copy.book.title,
-          dueDate: loan.dueDate,
+        const dueDateFormatted = new Date(loan.dueDate).toLocaleDateString('zh-CN', {
+          year: 'numeric',
+          month: 'long',
+          day: 'numeric',
         });
+        const messageContent = `📚 图书到期提醒\n\n您借阅的图书《${loan.copy.book.title}》将于 ${dueDateFormatted} 到期。\n请及时归还或办理续借，避免产生逾期费用。\n\n如已续借，请忽略此消息。`;
+
+        // 并行执行邮件发送和站内消息发送
+        const [emailResult, messageResult] = await Promise.all([
+          // 发送邮件
+          sendDueReminderEmail({
+            email: loan.user.email,
+            readerName: loan.user.name,
+            bookTitle: loan.copy.book.title,
+            dueDate: loan.dueDate,
+          }),
+          // 发送站内消息
+          sendSystemMessage({
+            receiverId: loan.userId,
+            content: messageContent,
+          }),
+        ]);
 
         await prisma.reminderLog.create({
           data: {
@@ -112,7 +165,7 @@ async function checkAndSendReminders({ force = false } = {}) {
 
         if (emailResult.success) {
           successCount++;
-          console.log(`✅ 发送成功: ${loan.user.name} - ${loan.copy.book.title}`);
+          console.log(`✅ 邮件发送成功: ${loan.user.name} - ${loan.copy.book.title}`);
         } else {
           failureCount++;
           console.log(`❌ 发送失败: ${loan.user.name} - ${emailResult.error}`);

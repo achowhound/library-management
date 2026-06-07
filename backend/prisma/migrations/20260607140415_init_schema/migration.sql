@@ -1,0 +1,14 @@
+-- CreateTable
+CREATE TABLE "DueReminderLog" (
+    "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    "loanId" INTEGER NOT NULL,
+    "userId" INTEGER NOT NULL,
+    "bookId" INTEGER NOT NULL,
+    "email" TEXT NOT NULL,
+    "status" TEXT NOT NULL,
+    "errorMessage" TEXT,
+    "sentAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "DueReminderLog_loanId_fkey" FOREIGN KEY ("loanId") REFERENCES "Loan" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT "DueReminderLog_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User" ("id") ON DELETE RESTRICT ON UPDATE CASCADE,
+    CONSTRAINT "DueReminderLog_bookId_fkey" FOREIGN KEY ("bookId") REFERENCES "Book" ("id") ON DELETE RESTRICT ON UPDATE CASCADE
+);
