@@ -50,45 +50,64 @@ function MyHistory() {
 
   const syncPaymentFromReturnUrl = async () => {
     const params = new URLSearchParams(window.location.search);
-    const finePaid = params.get('fine_paid');
-    if (finePaid === '1') {
-      window.history.replaceState({}, '', window.location.pathname);
-      const bookTitle = sessionStorage.getItem('pendingReturnBookTitle');
-      setMessage(buildReturnSuccessMessage(bookTitle));
-      clearPendingReturnSession();
-      fetchHistory();
-      return;
-    }
-
     const outTradeNo = params.get('out_trade_no');
-    if (!outTradeNo || !outTradeNo.startsWith('FINE')) return;
+    const finePaid = params.get('fine_paid');
+
+    if ((!outTradeNo || !outTradeNo.startsWith('FINE')) && finePaid !== '1') return;
 
     window.history.replaceState({}, '', window.location.pathname);
 
     const token = localStorage.getItem('token');
     if (!token) return;
 
-    try {
-      const response = await fetch('http://localhost:3001/api/reader/pay-fine/sync', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-        },
-        body: JSON.stringify({ outTradeNo }),
-      });
-      const data = await response.json();
+    const pendingReturnLoanId = sessionStorage.getItem('pendingReturnLoanId');
+    const pendingBookTitle = sessionStorage.getItem('pendingReturnBookTitle');
 
-      if (response.ok && data.paid) {
-        const bookTitle = data.bookTitle || sessionStorage.getItem('pendingReturnBookTitle');
-        setMessage(buildReturnSuccessMessage(bookTitle));
-        clearPendingReturnSession();
-        fetchHistory();
-      } else if (response.status === 404) {
-        setMessage(data.message || '借阅记录不存在');
-        clearPendingReturnSession();
-      } else {
-        setMessage(data.message || '支付状态确认失败，请稍后刷新页面');
+    try {
+      if (outTradeNo && outTradeNo.startsWith('FINE')) {
+        const response = await fetch('http://localhost:3001/api/reader/pay-fine/sync', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`,
+          },
+          body: JSON.stringify({ outTradeNo }),
+        });
+        const data = await response.json();
+
+        if (response.ok && data.paid) {
+          const bookTitle = data.bookTitle || pendingBookTitle;
+          if (pendingReturnLoanId && data.returned === false) {
+            setMessage('罚款已支付，但还书未完成，请刷新页面或联系管理员');
+          } else if (pendingReturnLoanId) {
+            setMessage(buildReturnSuccessMessage(bookTitle));
+          } else {
+            setMessage('罚款支付成功！');
+          }
+          clearPendingReturnSession();
+          fetchHistory();
+        } else if (response.status === 404) {
+          setMessage(data.message || '借阅记录不存在');
+          clearPendingReturnSession();
+        } else {
+          setMessage(data.message || '支付状态确认失败，请稍后刷新页面');
+        }
+        return;
+      }
+
+      if (finePaid === '1' && pendingReturnLoanId) {
+        const response = await fetch(`http://localhost:3001/api/reader/return/${pendingReturnLoanId}`, {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${token}` },
+        });
+        const data = await response.json();
+        if (response.ok && data.success) {
+          setMessage(data.message || buildReturnSuccessMessage(pendingBookTitle));
+          clearPendingReturnSession();
+          fetchHistory();
+        } else {
+          setMessage(data.message || '还书失败，请联系管理员');
+        }
       }
     } catch (error) {
       setMessage('支付状态确认失败，请稍后刷新页面');
