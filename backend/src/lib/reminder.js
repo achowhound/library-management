@@ -128,12 +128,28 @@ async function checkAndSendReminders({ force = false } = {}) {
           continue;
         }
 
-        const emailResult = await sendDueReminderEmail({
-          email: loan.user.email,
-          readerName: loan.user.name,
-          bookTitle: loan.copy.book.title,
-          dueDate: loan.dueDate,
+        const dueDateFormatted = new Date(loan.dueDate).toLocaleDateString('zh-CN', {
+          year: 'numeric',
+          month: 'long',
+          day: 'numeric',
         });
+        const messageContent = `📚 图书到期提醒\n\n您借阅的图书《${loan.copy.book.title}》将于 ${dueDateFormatted} 到期。\n请及时归还或办理续借，避免产生逾期费用。\n\n如已续借，请忽略此消息。`;
+
+        // 并行执行邮件发送和站内消息发送
+        const [emailResult, messageResult] = await Promise.all([
+          // 发送邮件
+          sendDueReminderEmail({
+            email: loan.user.email,
+            readerName: loan.user.name,
+            bookTitle: loan.copy.book.title,
+            dueDate: loan.dueDate,
+          }),
+          // 发送站内消息
+          sendSystemMessage({
+            receiverId: loan.userId,
+            content: messageContent,
+          }),
+        ]);
 
         await prisma.reminderLog.create({
           data: {
@@ -150,19 +166,6 @@ async function checkAndSendReminders({ force = false } = {}) {
         if (emailResult.success) {
           successCount++;
           console.log(`✅ 邮件发送成功: ${loan.user.name} - ${loan.copy.book.title}`);
-          
-          // 发送站内消息提醒
-          const dueDateFormatted = new Date(loan.dueDate).toLocaleDateString('zh-CN', {
-            year: 'numeric',
-            month: 'long',
-            day: 'numeric',
-          });
-          const messageContent = `📚 图书到期提醒\n\n您借阅的图书《${loan.copy.book.title}》将于 ${dueDateFormatted} 到期。\n请及时归还或办理续借，避免产生逾期费用。\n\n如已续借，请忽略此消息。`;
-          
-          await sendSystemMessage({
-            receiverId: loan.userId,
-            content: messageContent,
-          });
         } else {
           failureCount++;
           console.log(`❌ 发送失败: ${loan.user.name} - ${emailResult.error}`);

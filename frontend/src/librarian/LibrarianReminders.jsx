@@ -113,6 +113,7 @@ const LibrarianReminders = () => {
 
   const uniqueReminderList = useMemo(() => {
     const map = new Map();
+    const now = new Date();
 
     reminders.forEach((reminder) => {
       const key = reminder.loan?.id ?? reminder.loanId ?? reminder.id;
@@ -124,7 +125,13 @@ const LibrarianReminders = () => {
       }
     });
 
-    return Array.from(map.values()).sort((a, b) => new Date(a.dueDate) - new Date(b.dueDate));
+    // 过滤掉已逾期的记录（到期日期早于当前时间）
+    return Array.from(map.values())
+      .filter((reminder) => {
+        const dueDate = new Date(reminder.dueDate || reminder.loan?.dueDate);
+        return dueDate >= now;
+      })
+      .sort((a, b) => new Date(a.dueDate) - new Date(b.dueDate));
   }, [reminders]);
 
   return (

@@ -140,42 +140,49 @@ async function sendReminderForLoan(loan) {
   }
 
   try {
-    const transporter = await getTransporter();
-    const template = buildEmailTemplate(loan);
-    const info = await transporter.sendMail({
-      from: REMINDER_EMAIL_FROM,
-      to: userEmail,
-      subject: template.subject,
-      text: template.text,
-      html: template.html,
-    });
+    const bookName = loan.copy?.book?.title || '未知图书';
+    const dueDate = formatDate(loan.dueDate);
+    
+    // 构建站内消息内容
+    const messageContent = `📚 图书到期提醒\n\n您借阅的图书《${bookName}》将于 ${dueDate} 到期。\n请及时归还或办理续借，避免产生逾期费用。\n\n如已续借，请忽略此消息。`;
 
-    if (transportInfoHasPreview(info)) {
-      console.log(`📧 到期提醒邮件发送成功 (预览): ${nodemailer.getTestMessageUrl(info)}`);
-    }
+    // 并行执行邮件发送和站内消息发送
+    const [emailResult, messageResult] = await Promise.all([
+      // 发送邮件
+      (async () => {
+        const transporter = await getTransporter();
+        const template = buildEmailTemplate(loan);
+        const info = await transporter.sendMail({
+          from: REMINDER_EMAIL_FROM,
+          to: userEmail,
+          subject: template.subject,
+          text: template.text,
+          html: template.html,
+        });
+        if (transportInfoHasPreview(info)) {
+          console.log(`📧 到期提醒邮件发送成功 (预览): ${nodemailer.getTestMessageUrl(info)}`);
+        }
+        return { success: true };
+      })(),
+      // 发送站内消息
+      sendSystemMessage({
+        receiverId: userId,
+        content: messageContent,
+      }),
+    ]);
 
     await saveReminderLog({
       loanId,
       userId,
       bookId,
       email: userEmail,
-      status: 'sent',
-      errorMessage: null,
+      status: emailResult.success ? 'sent' : 'failed',
+      errorMessage: emailResult.success ? null : '邮件发送失败',
     });
 
-    // 发送站内消息提醒
-    const bookName = loan.copy?.book?.title || '未知图书';
-    const dueDate = formatDate(loan.dueDate);
-    const messageContent = `📚 图书到期提醒\n\n您借阅的图书《${bookName}》将于 ${dueDate} 到期。\n请及时归还或办理续借，避免产生逾期费用。\n\n如已续借，请忽略此消息。`;
-    
-    await sendSystemMessage({
-      receiverId: userId,
-      content: messageContent,
-    });
-
-    return { success: true };
+    return { success: emailResult.success };
   } catch (error) {
-    console.error('发送到期提醒邮件失败:', error);
+    console.error('发送到期提醒失败:', error);
     await saveReminderLog({
       loanId,
       userId,
@@ -184,7 +191,7 @@ async function sendReminderForLoan(loan) {
       status: 'failed',
       errorMessage: String(error.message || error),
     });
-    return { success: false, error: error.message || '邮件发送失败' };
+    return { success: false, error: error.message || '提醒发送失败' };
   }
 }
 
