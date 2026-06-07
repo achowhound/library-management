@@ -439,12 +439,28 @@ router.post('/return/:loanId', requireAuth, async (req, res) => {
     const loanId = parseInt(req.params.loanId);
 
     const loan = await prisma.loan.findFirst({
-      where: { id: loanId, userId: req.user.id, returnDate: null },
+      where: { id: loanId, userId: req.user.id },
       include: { copy: { include: { book: true } }, user: true }
     });
 
     if (!loan) {
-      return res.status(404).json({ success: false, message: '借阅记录不存在或已归还' });
+      return res.status(404).json({ success: false, message: '借阅记录不存在' });
+    }
+
+    if (loan.returnDate) {
+      return res.json({
+        success: true,
+        message: `《${loan.copy.book.title}》已成功归还`,
+        alreadyReturned: true,
+        loan: {
+          id: loan.id,
+          bookTitle: loan.copy.book.title,
+          returnDate: loan.returnDate,
+          fineAmount: Number(loan.fineAmount ?? 0),
+          finePaid: Boolean(loan.finePaid),
+          fineForgiven: Boolean(loan.fineForgiven),
+        }
+      });
     }
 
     // 获取罚款率并计算罚款
@@ -528,14 +544,17 @@ router.post('/pay-fine/sync', requireAuth, async (req, res) => {
 
     const loan = await prisma.loan.findFirst({
       where: { id: loanId, userId: req.user.id },
+      include: { copy: { include: { book: true } } },
     });
 
     if (!loan) {
       return res.status(404).json({ success: false, message: '借阅记录不存在' });
     }
 
+    const bookTitle = loan.copy?.book?.title;
+
     if (loan.finePaid) {
-      return res.json({ success: true, paid: true, alreadyPaid: true });
+      return res.json({ success: true, paid: true, alreadyPaid: true, bookTitle });
     }
 
     const result = await alipaySdk.exec('alipay.trade.query', {
@@ -545,7 +564,7 @@ router.post('/pay-fine/sync', requireAuth, async (req, res) => {
     const tradeStatus = result.tradeStatus;
     if (tradeStatus === 'TRADE_SUCCESS' || tradeStatus === 'TRADE_FINISHED') {
       await markFineAsPaid(loanId, result.totalAmount || loan.fineAmount, 'sync');
-      return res.json({ success: true, paid: true });
+      return res.json({ success: true, paid: true, bookTitle });
     }
 
     return res.json({

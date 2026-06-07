@@ -40,17 +40,22 @@ function MyHistory() {
     syncPaymentFromReturnUrl();
   }, []);
 
+  const buildReturnSuccessMessage = (bookTitle) =>
+    bookTitle ? `《${bookTitle}》已成功归还` : '归还成功！';
+
+  const clearPendingReturnSession = () => {
+    sessionStorage.removeItem('pendingReturnLoanId');
+    sessionStorage.removeItem('pendingReturnBookTitle');
+  };
+
   const syncPaymentFromReturnUrl = async () => {
     const params = new URLSearchParams(window.location.search);
     const finePaid = params.get('fine_paid');
     if (finePaid === '1') {
       window.history.replaceState({}, '', window.location.pathname);
-      setMessage('罚款支付成功！（模拟）');
-      const pendingId = sessionStorage.getItem('pendingReturnLoanId');
-      if (pendingId) {
-        executeReturn(parseInt(pendingId, 10));
-        sessionStorage.removeItem('pendingReturnLoanId');
-      }
+      const bookTitle = sessionStorage.getItem('pendingReturnBookTitle');
+      setMessage(buildReturnSuccessMessage(bookTitle));
+      clearPendingReturnSession();
       fetchHistory();
       return;
     }
@@ -75,13 +80,13 @@ function MyHistory() {
       const data = await response.json();
 
       if (response.ok && data.paid) {
-        setMessage('罚款支付成功！');
-        const pendingId = sessionStorage.getItem('pendingReturnLoanId');
-        if (pendingId) {
-          await executeReturn(parseInt(pendingId, 10));
-          sessionStorage.removeItem('pendingReturnLoanId');
-        }
+        const bookTitle = data.bookTitle || sessionStorage.getItem('pendingReturnBookTitle');
+        setMessage(buildReturnSuccessMessage(bookTitle));
+        clearPendingReturnSession();
         fetchHistory();
+      } else if (response.status === 404) {
+        setMessage(data.message || '借阅记录不存在');
+        clearPendingReturnSession();
       } else {
         setMessage(data.message || '支付状态确认失败，请稍后刷新页面');
       }
@@ -203,24 +208,6 @@ function MyHistory() {
     setTimeout(() => setMessage(''), 3000);
   };
 
-  const executeReturn = async (loanId) => {
-    const token = localStorage.getItem('token');
-    try {
-      const response = await fetch(`http://localhost:3001/api/reader/return/${loanId}`, {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      const data = await response.json();
-      if (response.ok && data.success) {
-        setMessage(data.message || '归还成功！');
-      } else {
-        setMessage(data.message || '归还失败');
-      }
-    } catch (error) {
-      setMessage('归还失败');
-    }
-  };
-
   const handleConfirmPayment = async () => {
     if (!selectedLoan) return;
 
@@ -233,6 +220,10 @@ function MyHistory() {
 
     if (pendingReturnLoan) {
       sessionStorage.setItem('pendingReturnLoanId', String(pendingReturnLoan));
+      const bookTitle = selectedLoan?.copy?.book?.title;
+      if (bookTitle) {
+        sessionStorage.setItem('pendingReturnBookTitle', bookTitle);
+      }
     }
 
     const payUrl = `http://localhost:3001/api/reader/pay-fine/${selectedLoan.id}?token=${encodeURIComponent(token)}`;
@@ -559,13 +550,6 @@ function MyHistory() {
                 罚款金额：¥{paymentAmount.toFixed(2)}
               </p>
             </div>
-
-            {!paymentSuccess && (
-              <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800">
-                <p className="font-medium mb-1">沙箱支付提示</p>
-                <p>请用开放平台「沙箱账号」里的<strong>买家账号</strong>登录，不要用日常支付宝或商家账号。扫码需安装「支付宝沙箱版」App（Android）。</p>
-              </div>
-            )}
 
             {!paymentSuccess && (
               <div className="mb-4">
