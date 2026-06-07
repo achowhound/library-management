@@ -83,6 +83,44 @@ async function saveReminderLog({ loanId, userId, bookId, email, status, errorMes
   });
 }
 
+async function sendSystemMessage({ receiverId, content }) {
+  try {
+    // 查找或创建一个系统用户作为消息发送者
+    const systemEmail = 'system@library.local';
+    let systemUser = await prisma.user.findUnique({
+      where: { email: systemEmail },
+    });
+
+    if (!systemUser) {
+      const bcrypt = require('bcrypt');
+      const passwordHash = await bcrypt.hash('system-placeholder-password', 10);
+      systemUser = await prisma.user.create({
+        data: {
+          name: '图书馆系统',
+          email: systemEmail,
+          passwordHash,
+          role: 'ADMIN',
+        },
+      });
+      console.log('✅ 创建系统消息用户成功');
+    }
+
+    await prisma.message.create({
+      data: {
+        senderId: systemUser.id,
+        receiverId,
+        content,
+      },
+    });
+
+    console.log(`💬 站内消息发送成功: 用户 ${receiverId}`);
+    return { success: true };
+  } catch (error) {
+    console.error('发送站内消息失败:', error.message);
+    return { success: false, error: error.message };
+  }
+}
+
 async function sendReminderForLoan(loan) {
   const userEmail = loan.user?.email;
   const userId = loan.user?.id;
@@ -123,6 +161,16 @@ async function sendReminderForLoan(loan) {
       email: userEmail,
       status: 'sent',
       errorMessage: null,
+    });
+
+    // 发送站内消息提醒
+    const bookName = loan.copy?.book?.title || '未知图书';
+    const dueDate = formatDate(loan.dueDate);
+    const messageContent = `📚 图书到期提醒\n\n您借阅的图书《${bookName}》将于 ${dueDate} 到期。\n请及时归还或办理续借，避免产生逾期费用。\n\n如已续借，请忽略此消息。`;
+    
+    await sendSystemMessage({
+      receiverId: userId,
+      content: messageContent,
     });
 
     return { success: true };
