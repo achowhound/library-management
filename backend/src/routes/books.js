@@ -1,4 +1,5 @@
 const express = require('express');
+const XLSX = require('xlsx');
 
 const prisma = require('../lib/prisma');
 const { requireAuth, requireLibrarian } = require('../middleware/auth');
@@ -49,6 +50,275 @@ function parseOptionalPositiveInteger(value) {
   }
 
   return parsePositiveInteger(value, 1);
+}
+
+function parseNonNegativeInteger(value, fallback = 0) {
+  if (value === undefined || value === null || value === '') {
+    return fallback;
+  }
+
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed >= 0 ? parsed : fallback;
+}
+
+function buildCopyBarcode(isbn, copyNumber) {
+  return `${isbn} ${copyNumber}`;
+}
+
+function getCopyNumberFromBarcode(isbn, barcode) {
+  const prefix = `${isbn} `;
+  if (!barcode || !barcode.startsWith(prefix)) {
+    return null;
+  }
+
+  const copyNumber = Number.parseInt(barcode.slice(prefix.length), 10);
+  return Number.isInteger(copyNumber) && copyNumber > 0 ? copyNumber : null;
+}
+
+async function getNextCopyNumber(tx, bookId, isbn) {
+  const copies = await tx.copy.findMany({
+    where: { bookId },
+    select: { barcode: true },
+  });
+  const maxCopyNumber = copies.reduce((maxValue, copy) => {
+    const copyNumber = getCopyNumberFromBarcode(isbn, copy.barcode);
+    return copyNumber && copyNumber > maxValue ? copyNumber : maxValue;
+  }, 0);
+
+  return Math.max(maxCopyNumber, copies.length) + 1;
+}
+
+function formatBookResponse(book) {
+  const copies = Array.isArray(book.copies) ? book.copies : [];
+  const availableCopies = copies.filter((copy) => copy.status === 'AVAILABLE').length;
+  const firstCopy = copies[0] || {};
+
+  return {
+    ...book,
+    availableCopies,
+    totalCopies: copies.length,
+    floor: firstCopy.floor ?? 1,
+    libraryArea: firstCopy.libraryArea || '',
+    shelfNo: firstCopy.shelfNo || 'A',
+    shelfLevel: firstCopy.shelfLevel ?? 1,
+  };
+}
+
+async function findBookWithCopies(tx, bookId) {
+  return tx.book.findUnique({
+    where: { id: bookId },
+    include: {
+      copies: {
+        orderBy: { id: 'asc' },
+        select: {
+          id: true,
+          barcode: true,
+          status: true,
+          floor: true,
+          libraryArea: true,
+          shelfNo: true,
+          shelfLevel: true,
+        },
+      },
+    },
+  });
+}
+
+async function createCopiesForBook(tx, book, options) {
+  const copyCount = parsePositiveInteger(options.totalCopies, 1);
+  const copyFloor = parsePositiveInteger(options.floor, 1);
+  const copyShelfLevel = parsePositiveInteger(options.shelfLevel, 1);
+  const libraryArea = normalizeText(options.libraryArea) || `${book.genre}区`;
+  const shelfNo = normalizeText(options.shelfNo) || 'A';
+  let nextCopyNumber = await getNextCopyNumber(tx, book.id, book.isbn);
+  const createdCopies = [];
+
+  for (let index = 0; index < copyCount; index += 1) {
+    const copyNumber = nextCopyNumber + index;
+    const copy = await tx.copy.create({
+      data: {
+        bookId: book.id,
+        barcode: buildCopyBarcode(book.isbn, copyNumber),
+        floor: copyFloor,
+        libraryArea,
+        shelfNo,
+        shelfLevel: copyShelfLevel,
+        status: 'AVAILABLE',
+      },
+    });
+    createdCopies.push(copy);
+  }
+
+  return createdCopies;
+}
+
+function createHttpError(status, message) {
+  const error = new Error(message);
+  error.status = status;
+  return error;
+}
+
+function normalizeBookInput(input) {
+  const title = normalizeText(input.title);
+  const author = normalizeText(input.author);
+  const isbn = normalizeIsbn(input.isbn);
+  const genre = normalizeText(input.genre);
+  const totalCopies = parsePositiveInteger(input.totalCopies, 1);
+  const availableCopies = parseNonNegativeInteger(input.availableCopies, totalCopies);
+
+  if (!title || !author || !isbn || !genre) {
+    throw createHttpError(400, '书名、作者、ISBN和分类是必填项');
+  }
+
+  if (!isLookupIsbn(isbn)) {
+    throw createHttpError(400, '请输入有效的 ISBN-10 或 ISBN-13');
+  }
+
+  if (availableCopies > totalCopies) {
+    throw createHttpError(400, '可借册数不能大于总册数');
+  }
+
+  return {
+    title,
+    author,
+    isbn,
+    genre,
+    description: normalizeText(input.description) || null,
+    language: normalizeText(input.language) || 'English',
+    floor: input.floor,
+    libraryArea: input.libraryArea,
+    shelfNo: input.shelfNo,
+    shelfLevel: input.shelfLevel,
+    totalCopies,
+  };
+}
+
+async function upsertBookWithCopies(tx, input, user, options = {}) {
+  const bookInput = normalizeBookInput(input);
+  const existingBook = await tx.book.findUnique({
+    where: { isbn: bookInput.isbn },
+    select: BOOK_SELECT,
+  });
+  const book = existingBook
+    ? await tx.book.update({
+        where: { id: existingBook.id },
+        data: {
+          title: bookInput.title,
+          author: bookInput.author,
+          genre: bookInput.genre,
+          description: bookInput.description,
+          language: bookInput.language,
+        },
+        select: BOOK_SELECT,
+      })
+    : await tx.book.create({
+        data: {
+          title: bookInput.title,
+          author: bookInput.author,
+          isbn: bookInput.isbn,
+          genre: bookInput.genre,
+          description: bookInput.description,
+          language: bookInput.language,
+        },
+        select: BOOK_SELECT,
+      });
+
+  const createdCopies = await createCopiesForBook(tx, book, bookInput);
+  const source = options.source === 'IMPORT' ? '批量导入' : '添加';
+  const action = existingBook ? 'ADD_BOOK_COPIES' : 'CREATE_BOOK';
+  const rowDetail = options.rowNumber ? `（第 ${options.rowNumber} 行）` : '';
+
+  await tx.auditLog.create({
+    data: {
+      userId: user.id,
+      action,
+      entity: 'Book',
+      entityId: book.id,
+      detail: `${user.role === 'LIBRARIAN' ? '馆员' : '管理员'} ${user.name || user.email} ${source}${rowDetail}了《${book.title}》的 ${createdCopies.length} 个副本`,
+    },
+  });
+
+  const fullBook = await findBookWithCopies(tx, book.id);
+  return {
+    book: formatBookResponse(fullBook),
+    createdCopiesCount: createdCopies.length,
+    appendedToExisting: Boolean(existingBook),
+  };
+}
+
+const IMPORT_HEADER_ALIASES = {
+  title: ['title', 'book title', 'name', '书名', '图书名称', '图书名', '名称'],
+  author: ['author', 'authors', '作者'],
+  isbn: ['isbn', 'isbn13', 'isbn10', '书号'],
+  genre: ['genre', 'category', 'type', '分类', '类别'],
+  description: ['description', 'desc', 'summary', '简介', '描述', '图书简介'],
+  language: ['language', 'lang', '语言'],
+  floor: ['floor', '楼层'],
+  libraryArea: ['library area', 'area', 'zone', '区域', '馆区', '书库区域'],
+  shelfNo: ['shelf no', 'shelf number', 'shelf', '书架号', '书架', '架号'],
+  shelfLevel: ['shelf level', 'level', '层数', '书架层', '架层'],
+  totalCopies: ['total copies', 'copies', 'copy count', 'quantity', '总册数', '册数', '副本数', '数量', '新增册数'],
+  availableCopies: ['available copies', 'available', '可借册数', '可借副本数'],
+};
+
+const IMPORT_HEADER_MAP = new Map(
+  Object.entries(IMPORT_HEADER_ALIASES).flatMap(([field, aliases]) =>
+    aliases.map((alias) => [normalizeImportHeader(alias), field])
+  )
+);
+
+function normalizeImportHeader(value) {
+  return normalizeText(value)
+    .normalize('NFKC')
+    .toLowerCase()
+    .replace(/[\s_（）():：.-]/g, '');
+}
+
+function normalizeImportCell(value) {
+  if (value === undefined || value === null) {
+    return '';
+  }
+
+  return normalizeText(String(value));
+}
+
+function normalizeImportRow(row) {
+  return Object.entries(row).reduce((normalized, [header, value]) => {
+    const field = IMPORT_HEADER_MAP.get(normalizeImportHeader(header));
+    if (field && normalized[field] === undefined) {
+      normalized[field] = normalizeImportCell(value);
+    }
+    return normalized;
+  }, {});
+}
+
+function parseBookImportRows(fileBase64) {
+  const payload = normalizeText(fileBase64).replace(/^data:.*;base64,/, '');
+
+  if (!payload) {
+    throw createHttpError(400, '请上传 .xlsx 文件');
+  }
+
+  const workbook = XLSX.read(Buffer.from(payload, 'base64'), { type: 'buffer' });
+  const firstSheetName = workbook.SheetNames[0];
+
+  if (!firstSheetName) {
+    throw createHttpError(400, 'Excel 文件中没有可导入的工作表');
+  }
+
+  const rawRows = XLSX.utils.sheet_to_json(workbook.Sheets[firstSheetName], {
+    defval: '',
+    raw: false,
+  });
+  const rows = rawRows
+    .map(normalizeImportRow)
+    .filter((row) => Object.values(row).some((value) => normalizeText(value)));
+
+  if (rows.length === 0) {
+    throw createHttpError(400, 'Excel 文件中没有可导入的图书数据');
+  }
+
+  return rows;
 }
 
 function inferLanguageFromIsbn(isbn) {
@@ -517,7 +787,8 @@ router.get('/search', async (req, res) => {
         whereCondition.OR.push(
           { title: { contains: keyword } },
           { author: { contains: keyword } },
-          { isbn: { contains: keyword } }
+          { isbn: { contains: keyword } },
+          { copies: { some: { barcode: { contains: keyword } } } }
         );
       }
     }
@@ -614,6 +885,46 @@ router.get('/lookup', async (req, res) => {
   }
 });
 
+// 批量导入图书和副本
+router.post('/import', requireAuth, requireLibrarian, async (req, res) => {
+  try {
+    const rows = parseBookImportRows(req.body?.fileBase64);
+
+    const importResult = await prisma.$transaction(async (tx) => {
+      const booksById = new Map();
+      let createdCopiesCount = 0;
+
+      for (const [index, row] of rows.entries()) {
+        try {
+          const result = await upsertBookWithCopies(tx, row, req.user, {
+            source: 'IMPORT',
+            rowNumber: index + 2,
+          });
+          booksById.set(result.book.id, result.book);
+          createdCopiesCount += result.createdCopiesCount;
+        } catch (error) {
+          throw createHttpError(error.status || 400, `第 ${index + 2} 行导入失败：${error.message}`);
+        }
+      }
+
+      return {
+        importedRows: rows.length,
+        createdCopiesCount,
+        books: Array.from(booksById.values()).sort((left, right) => left.id - right.id),
+      };
+    });
+
+    res.status(201).json({
+      success: true,
+      message: `批量导入成功，共导入 ${importResult.importedRows} 行，新增 ${importResult.createdCopiesCount} 个副本`,
+      ...importResult,
+    });
+  } catch (error) {
+    console.error('Import books error:', error);
+    res.status(error.status || 500).json({ error: error.message || '批量导入图书失败' });
+  }
+});
+
 // 获取单本图书详情
 router.get('/:id', async (req, res) => {
   const bookId = Number(req.params.id);
@@ -658,96 +969,20 @@ router.get('/:id', async (req, res) => {
 // 添加图书
 router.post('/', requireAuth, requireLibrarian, async (req, res) => {
   try {
-    const {
-      title, author, isbn, genre, description, language,
-      floor, libraryArea, shelfNo, shelfLevel, totalCopies
-    } = req.body;
-
-    if (!title || !author || !isbn || !genre) {
-      return res.status(400).json({ error: '书名、作者、ISBN和分类是必填项' });
-    }
-
-    const normalizedIsbn = normalizeIsbn(isbn);
-
-    if (!isLookupIsbn(normalizedIsbn)) {
-      return res.status(400).json({ error: '请输入有效的 ISBN-10 或 ISBN-13' });
-    }
-
-    const existingBook = await prisma.book.findUnique({ where: { isbn: normalizedIsbn } });
-    if (existingBook) {
-      return res.status(409).json({ error: '该 ISBN 已存在' });
-    }
-
-    const copyFloor = parsePositiveInteger(floor, 1);
-    const copyShelfLevel = parsePositiveInteger(shelfLevel, 1);
-    const copyCount = parsePositiveInteger(totalCopies, 1);
-
-    const fullBook = await prisma.$transaction(async (tx) => {
-      const book = await tx.book.create({
-        data: {
-          title: title.trim(),
-          author: author.trim(),
-          isbn: normalizedIsbn,
-          genre: genre.trim(),
-          description: description?.trim() || null,
-          language: language?.trim() || 'English',
-        },
-        select: BOOK_SELECT,
-      });
-
-      for (let index = 1; index <= copyCount; index++) {
-        await tx.copy.create({
-          data: {
-            bookId: book.id,
-            barcode: `BC-${book.id}-${index}`,
-            floor: copyFloor,
-            libraryArea: libraryArea || `${genre}区`,
-            shelfNo: shelfNo || 'A',
-            shelfLevel: copyShelfLevel,
-            status: 'AVAILABLE'
-          }
-        });
-      }
-
-      await tx.auditLog.create({
-        data: {
-          userId: req.user.id,
-          action: 'CREATE_BOOK',
-          entity: 'Book',
-          entityId: book.id,
-          detail: `${req.user.role === 'LIBRARIAN' ? '馆员' : '管理员'} ${req.user.name || req.user.email} 添加了图书《${book.title}》`
-        }
-      });
-
-      return tx.book.findUnique({
-        where: { id: book.id },
-        include: {
-          copies: {
-            select: { id: true, barcode: true, status: true, floor: true, libraryArea: true, shelfNo: true, shelfLevel: true }
-          }
-        }
-      });
+    const result = await prisma.$transaction(async (tx) => {
+      return upsertBookWithCopies(tx, req.body, req.user);
     });
-
-    const availableCopies = fullBook.copies.filter(c => c.status === 'AVAILABLE').length;
-    const firstCopy = fullBook.copies[0] || {};
 
     res.status(201).json({
       success: true,
-      message: '图书添加成功',
-      book: {
-        ...fullBook,
-        availableCopies,
-        totalCopies: fullBook.copies.length,
-        floor: firstCopy.floor,
-        libraryArea: firstCopy.libraryArea,
-        shelfNo: firstCopy.shelfNo,
-        shelfLevel: firstCopy.shelfLevel,
-      }
+      message: result.appendedToExisting ? '已为该 ISBN 追加图书副本' : '图书添加成功',
+      book: result.book,
+      createdCopiesCount: result.createdCopiesCount,
+      appendedToExisting: result.appendedToExisting,
     });
   } catch (error) {
     console.error('Create book error:', error);
-    res.status(500).json({ error: '添加图书失败' });
+    res.status(error.status || 500).json({ error: error.message || '添加图书失败' });
   }
 });
 
@@ -790,7 +1025,7 @@ router.put('/:id', requireAuth, requireLibrarian, async (req, res) => {
       }
     }
 
-    await prisma.book.update({
+    const updatedBook = await prisma.book.update({
       where: { id: bookId },
       data: {
         title: title.trim(),
@@ -799,8 +1034,24 @@ router.put('/:id', requireAuth, requireLibrarian, async (req, res) => {
         genre: genre.trim(),
         description: description?.trim() || null,
         language: language?.trim() || 'English',
-      }
+      },
+      select: BOOK_SELECT,
     });
+
+    if (normalizedIsbn !== existingBook.isbn) {
+      const copies = await prisma.copy.findMany({
+        where: { bookId },
+        orderBy: { id: 'asc' },
+        select: { id: true },
+      });
+
+      for (const [index, copy] of copies.entries()) {
+        await prisma.copy.update({
+          where: { id: copy.id },
+          data: { barcode: buildCopyBarcode(normalizedIsbn, index + 1) },
+        });
+      }
+    }
 
     if (totalCopies !== undefined) {
       const currentCopies = await prisma.copy.findMany({ where: { bookId: bookId } });
@@ -814,20 +1065,13 @@ router.put('/:id', requireAuth, requireLibrarian, async (req, res) => {
           shelfNo: shelfNo || 'A',
           shelfLevel: nextShelfLevel ?? 1
         };
-
-        for (let i = currentCount + 1; i <= targetCount; i++) {
-          await prisma.copy.create({
-            data: {
-              bookId: bookId,
-              barcode: `BC-${bookId}-${i}`,
-              floor: nextFloor ?? firstCopy.floor,
-              libraryArea: libraryArea !== undefined ? libraryArea : firstCopy.libraryArea,
-              shelfNo: shelfNo !== undefined ? shelfNo : firstCopy.shelfNo,
-              shelfLevel: nextShelfLevel ?? firstCopy.shelfLevel,
-              status: 'AVAILABLE'
-            }
-          });
-        }
+        await createCopiesForBook(prisma, updatedBook, {
+          totalCopies: targetCount - currentCount,
+          floor: nextFloor ?? firstCopy.floor,
+          libraryArea: libraryArea !== undefined ? libraryArea : firstCopy.libraryArea,
+          shelfNo: shelfNo !== undefined ? shelfNo : firstCopy.shelfNo,
+          shelfLevel: nextShelfLevel ?? firstCopy.shelfLevel,
+        });
       } else if (targetCount < currentCount) {
         const toDeleteCount = currentCount - targetCount;
         let deletedCount = 0;
