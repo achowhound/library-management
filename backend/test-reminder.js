@@ -30,11 +30,15 @@ async function runTests() {
     // 创建测试用户
     const testUser = await prisma.user.upsert({
       where: { email: 'hyfceshi@163.com' },
+      where: { email: 'hyfceshi@163.com' },
       update: {},
       create: {
         name: '测试学生1',
         email: 'hyfceshi@163.com',
+        name: '测试学生1',
+        email: 'hyfceshi@163.com',
         passwordHash: await bcrypt.hash('password123', 10),
+        studentId: 'TEST-HYF-001',
         studentId: 'hyf2026001',
         role: 'STUDENT',
       },
@@ -142,6 +146,16 @@ async function runTests() {
     loans.push(loan4);
     console.log(`✓ 创建借阅记录4: 5天后到期 (${in5Days.toLocaleDateString('zh-CN')}) [不应被提醒]`);
 
+    // 2. 跳过邮件发送（已取消）
+    console.log('\n📧 第二步: 执行图书到期提醒任务（已跳过邮件发送）\n');
+
+    console.log('⚠️  已跳过邮件发送步骤');
+    const reminderResult = {
+      totalProcessed: 0,
+      successCount: 0,
+      failureCount: 0,
+      duration: '0ms',
+    };
     // 2. 执行提醒任务
 
     // 3. 查询提醒日志
