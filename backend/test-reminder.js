@@ -4,6 +4,7 @@
  * 运行: node test-reminder.js
  */
 
+require('dotenv').config();
 const prisma = require('./src/lib/prisma');
 const { checkAndSendReminders, getReminderLogs, getUserReminderStats } = require('./src/lib/reminder');
 const { initEmailService } = require('./src/lib/email');
@@ -28,13 +29,13 @@ async function runTests() {
 
     // 创建测试用户
     const testUser = await prisma.user.upsert({
-      where: { email: 'test-reminder@library.com' },
+      where: { email: 'hyfceshi@163.com' },
       update: {},
       create: {
-        name: '测试学生',
-        email: 'test-reminder@library.com',
+        name: '测试学生1',
+        email: 'hyfceshi@163.com',
         passwordHash: await bcrypt.hash('password123', 10),
-        studentId: 'TEST2026001',
+        studentId: 'hyf2026001',
         role: 'STUDENT',
       },
     });
@@ -142,14 +143,6 @@ async function runTests() {
     console.log(`✓ 创建借阅记录4: 5天后到期 (${in5Days.toLocaleDateString('zh-CN')}) [不应被提醒]`);
 
     // 2. 执行提醒任务
-    console.log('\n📧 第二步: 执行图书到期提醒任务\n');
-
-    const reminderResult = await checkAndSendReminders();
-    console.log(`\n提醒任务执行结果:`);
-    console.log(`  - 处理记录数: ${reminderResult.totalProcessed}`);
-    console.log(`  - 成功发送: ${reminderResult.successCount}`);
-    console.log(`  - 发送失败: ${reminderResult.failureCount}`);
-    console.log(`  - 执行耗时: ${reminderResult.duration}`);
 
     // 3. 查询提醒日志
     console.log('\n📋 第三步: 查询提醒日志\n');
