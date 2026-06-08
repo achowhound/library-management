@@ -144,6 +144,9 @@ generate-token.js
 
 # Database backups
 backend/backups/
-.claude/backend/prisma/*.db
-backend/prisma/prisma/dev.db
+.claude/
+
+# SQLite database files
 *.db
+*.db-journal
+backend/prisma/prisma/
