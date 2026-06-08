@@ -834,6 +834,73 @@ router.get('/reminder-logs', requireAuth, checkLibrarianOrAdmin, async (req, res
   }
 });
 
+// 获取罚款缴费记录与馆员工薪统计
+router.get('/fine-payments', requireAuth, checkLibrarianOrAdmin, async (req, res) => {
+  try {
+    const paidFineLoans = await prisma.loan.findMany({
+      where: {
+        finePaid: true,
+        fineAmount: { gt: 0 },
+      },
+      include: {
+        user: { select: { id: true, name: true, studentId: true, email: true } },
+        copy: {
+          include: {
+            book: { select: { id: true, title: true, author: true, isbn: true } },
+          },
+        },
+      },
+      orderBy: { updatedAt: 'desc' },
+    });
+
+    const librarianCount = await prisma.user.count({
+      where: { role: 'LIBRARIAN' },
+    });
+
+    const totalFineAmount = paidFineLoans.reduce((sum, loan) => {
+      return sum + Number(loan.fineAmount || 0);
+    }, 0);
+    const salaryPerLibrarian = librarianCount > 0
+      ? Math.round((totalFineAmount / librarianCount + Number.EPSILON) * 100) / 100
+      : 0;
+
+    res.json({
+      success: true,
+      stats: {
+        totalRecords: paidFineLoans.length,
+        totalFineAmount,
+        librarianCount,
+        salaryPerLibrarian,
+      },
+      records: paidFineLoans.map((loan) => ({
+        id: loan.id,
+        loanBarcode: loan.barcode,
+        checkoutDate: loan.checkoutDate,
+        dueDate: loan.dueDate,
+        returnDate: loan.returnDate,
+        paidAt: loan.updatedAt,
+        fineAmount: Number(loan.fineAmount || 0),
+        finePaid: Boolean(loan.finePaid),
+        user: loan.user,
+        book: loan.copy?.book || null,
+        copy: loan.copy
+          ? {
+              id: loan.copy.id,
+              barcode: loan.copy.barcode,
+              floor: loan.copy.floor,
+              libraryArea: loan.copy.libraryArea,
+              shelfNo: loan.copy.shelfNo,
+              shelfLevel: loan.copy.shelfLevel,
+            }
+          : null,
+      })),
+    });
+  } catch (error) {
+    console.error('Fetch fine payments error:', error);
+    res.status(500).json({ success: false, message: '获取罚款缴费记录失败' });
+  }
+});
+
 // 测试接口
 router.get('/test', (req, res) => {
   res.json({ success: true, message: 'loans路由工作正常！', timestamp: new Date().toISOString() });

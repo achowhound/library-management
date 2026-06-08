@@ -5,6 +5,7 @@ import LibrarianReturnBooks from './LibrarianReturnBooks'
 import LibrarianSearchBorrowHistory from './LibrarianSearchBorrowHistory'
 import LibrarianMessages from './LibrarianMessages'
 import LibrarianReminders from './LibrarianReminders'
+import LibrarianFineView from './LibrarianFineView'
 import { API_URL, getAuthHeaders } from './api'
 
 export default function LibrarianDashboard({ librarian, onLogout }) {
@@ -150,6 +151,13 @@ useEffect(() => {
           </button>
           <LibrarianReminders />
         </div>
+      )
+    }
+
+    // 罚款缴费记录与工资统计页面
+    if (activeTab === 'fines') {
+      return (
+        <LibrarianFineView onBack={() => setActiveTab('home')} />
       )
     }
     
@@ -305,6 +313,19 @@ useEffect(() => {
               进入提醒管理 <span className="ml-2">→</span>
             </div>
           </div>
+
+          {/* 罚款缴费与工资统计卡片 */}
+          <div 
+            className="bg-white p-6 rounded-xl shadow-lg hover:shadow-xl transition cursor-pointer border-2 border-transparent hover:border-orange-300"
+            onClick={() => setActiveTab('fines')}
+          >
+            <div className="text-5xl mb-4">💰</div>
+            <h2 className="text-xl font-bold mb-2 text-gray-800">罚款缴费</h2>
+            <p className="text-gray-500 text-sm mb-4">查看用户逾期罚款缴费记录、统计罚款总额与馆员工薪</p>
+            <div className="flex items-center text-orange-500 font-semibold">
+              进入罚款统计 <span className="ml-2">→</span>
+            </div>
+          </div>
         </div>
 
         {/* 快捷提示 */}
@@ -417,6 +438,17 @@ useEffect(() => {
                   }`}
                 >
                   📧 提醒管理
+                </button>
+                {/* 添加罚款缴费按钮 */}
+                <button
+                  onClick={() => setActiveTab('fines')}
+                  className={`px-3 py-1.5 rounded-lg text-sm transition ${
+                    activeTab === 'fines' 
+                      ? 'bg-blue-500 text-white' 
+                      : 'text-gray-600 hover:bg-gray-100'
+                  }`}
+                >
+                  💰 罚款缴费
                 </button>
               </div>
 
