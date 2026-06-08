@@ -1,10 +1,11 @@
 const express = require('express');
 const prisma = require('../lib/prisma');
+const { requireAuth, requireAdmin } = require('../middleware/auth');
 
 const router = express.Router();
 
-// 获取系统日志列表 - 暂时去掉认证
-router.get('/', async (req, res, next) => {
+// 获取系统日志列表 - 仅管理员
+router.get('/', requireAuth, requireAdmin, async (req, res, next) => {
   try {
     const logs = await prisma.auditLog.findMany({
       orderBy: {

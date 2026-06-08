@@ -79,7 +79,6 @@ async function updateConfig(req, res, next) {
       userId: req.user.id,
       action: 'UPDATE_CONFIG',
       entity: 'Config',
-      entityId: key,
       detail: `管理员 ${req.user.email} 将配置 ${key} 更新为 ${value}`,
     });
 

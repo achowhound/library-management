@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 
-const API = 'http://localhost:3001/api';
+const API = '/api';
 
 function AdminBlocklist() {
   const navigate = useNavigate();

@@ -68,6 +68,12 @@ function AdminDashboard() {
       description: '封禁违规用户，限制其借阅和续借权限',
       href: '/admin/blocklist',
       icon: '🚫'
+    },
+    {
+      title: '罚款统计',
+      description: '按月度统计已缴纳罚款金额',
+      href: '/admin/fine-stats',
+      icon: '💰'
     }
   ];
 

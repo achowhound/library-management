@@ -72,4 +72,39 @@ router.get('/overdue-loans', async (req, res) => {
   }
 });
 
+// 罚款月度统计（已缴纳）
+router.get('/fine-stats', async (req, res) => {
+  try {
+    const result = await prisma.$queryRawUnsafe(`
+      SELECT
+        strftime('%Y-%m', "updatedAt") AS month,
+        SUM("fineAmount") AS totalFine,
+        COUNT(*) AS fineCount
+      FROM "Loan"
+      WHERE "finePaid" = 1 AND "fineAmount" > 0
+      GROUP BY strftime('%Y-%m', "updatedAt")
+      ORDER BY month ASC
+    `);
+
+    // 转换为数字类型（SQLite 返回 BigInt）
+    const stats = result.map((row) => ({
+      month: row.month,
+      totalFine: Number(row.totalFine),
+      fineCount: Number(row.fineCount),
+    }));
+
+    // 计算总计
+    const grandTotal = stats.reduce((sum, s) => sum + s.totalFine, 0);
+
+    res.json({
+      success: true,
+      stats,
+      grandTotal,
+    });
+  } catch (error) {
+    console.error('罚款统计失败:', error);
+    res.status(500).json({ success: false, error: '罚款统计失败' });
+  }
+});
+
 module.exports = router;
