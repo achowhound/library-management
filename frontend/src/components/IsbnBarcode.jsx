@@ -88,7 +88,7 @@ export default function IsbnBarcode({ isbn, height = 72 }) {
   if (!value) {
     return (
       <div className="rounded border border-dashed border-gray-300 bg-gray-50 px-3 py-2 text-sm text-gray-500">
-        暂无可生成条形码的 ISBN
+        暂无可生成条形码的内容
       </div>
     );
   }
@@ -102,7 +102,7 @@ export default function IsbnBarcode({ isbn, height = 72 }) {
     <div className="w-full overflow-hidden rounded border border-gray-200 bg-white p-3">
       <svg
         role="img"
-        aria-label={`ISBN barcode ${value}`}
+        aria-label={`Barcode ${value}`}
         viewBox={`0 0 ${viewBoxWidth} ${height + 26}`}
         className="h-auto w-full"
         preserveAspectRatio="xMidYMid meet"
