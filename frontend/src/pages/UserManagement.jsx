@@ -1,10 +1,10 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 function UserManagement() {
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [message, setMessage] = useState('');
+  const [message, setMessage] = useState({ text: '', type: 'success' });
   const [showForm, setShowForm] = useState(false);
   const [newUser, setNewUser] = useState({
     name: '',
@@ -18,13 +18,13 @@ function UserManagement() {
 
   const fetchUsers = async () => {
     try {
-      const response = await fetch('http://localhost:3001/api/readers/all', {
+      const response = await fetch('/api/readers/all', {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       const data = await response.json();
       setUsers(data.users || []);
     } catch (error) {
-      setMessage('获取用户列表失败');
+      setMessage({ text: '获取用户列表失败', type: 'error' });
     } finally {
       setLoading(false);
     }
@@ -40,7 +40,7 @@ function UserManagement() {
 
   const handleRoleChange = async (userId, newRole) => {
     try {
-      const response = await fetch(`http://localhost:3001/api/readers/${userId}/role`, {
+      const response = await fetch(`/api/readers/${userId}/role`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -49,21 +49,20 @@ function UserManagement() {
         body: JSON.stringify({ role: newRole })
       });
       if (response.ok) {
-        setMessage('角色更新成功');
+        setMessage({ text: '角色更新成功', type: 'success' });
         fetchUsers();
       } else {
-        setMessage('更新失败');
+        setMessage({ text: '更新失败', type: 'error' });
       }
     } catch (error) {
-      setMessage('更新失败');
+      setMessage({ text: '更新失败', type: 'error' });
     }
-    setTimeout(() => setMessage(''), 3000);
   };
 
   const handleCreateUser = async (e) => {
     e.preventDefault();
     try {
-      const response = await fetch('http://localhost:3001/api/readers/create', {
+      const response = await fetch('/api/readers/create', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -73,17 +72,16 @@ function UserManagement() {
       });
       const data = await response.json();
       if (response.ok) {
-        setMessage('用户创建成功');
+        setMessage({ text: '用户创建成功', type: 'success' });
         setShowForm(false);
         setNewUser({ name: '', email: '', studentId: '', password: '', role: 'STUDENT' });
         fetchUsers();
       } else {
-        setMessage(data.message || '创建失败');
+        setMessage({ text: data.message || '创建失败', type: 'error' });
       }
     } catch (error) {
-      setMessage('创建失败');
+      setMessage({ text: '创建失败', type: 'error' });
     }
-    setTimeout(() => setMessage(''), 3000);
   };
 
   const handleBack = () => {
@@ -141,9 +139,13 @@ function UserManagement() {
       <main className="max-w-7xl mx-auto py-8 px-4 sm:px-6 lg:px-8">
         <p className="text-gray-500 mb-6">管理系统用户和权限</p>
 
-        {message && (
-          <div className="mb-6 p-4 bg-green-100 border border-green-400 text-green-700 rounded-lg">
-            {message}
+        {message.text && (
+          <div className={`mb-6 p-4 border rounded-lg ${
+            message.type === 'error'
+              ? 'bg-red-100 border-red-400 text-red-700'
+              : 'bg-green-100 border-green-400 text-green-700'
+          }`}>
+            {message.text}
           </div>
         )}
 

@@ -13,7 +13,7 @@ export default function SystemLogs() {
       return;
     }
 
-    fetch('http://localhost:3001/api/logs', {
+    fetch('/api/logs', {
       headers: {
         'Authorization': `Bearer ${token}`
       }

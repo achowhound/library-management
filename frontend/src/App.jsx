@@ -15,6 +15,7 @@ import Messages from './pages/Messages';
 import SystemConfig from './pages/SystemConfig';
 import AdminBackupPage from './pages/AdminBackupPage';
 import AdminBlocklist from './pages/AdminBlocklist';
+import AdminFineStats from './pages/AdminFineStats';
 
 
 function App() {
@@ -70,6 +71,7 @@ function App() {
       <Route path="/admin/config" element={<SystemConfig />} />
       <Route path="/admin/backups" element={<AdminBackupPage />} />
       <Route path="/admin/blocklist" element={<AdminBlocklist />} />
+      <Route path="/admin/fine-stats" element={<AdminFineStats />} />
     </Routes>
   );
 }
