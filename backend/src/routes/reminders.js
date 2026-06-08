@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 图书到期提醒日志路由 - 供馆员查询和管理提醒记录
  * 路由前缀: /api/librarian/reminders
  */
@@ -6,6 +6,7 @@
 const express = require('express');
 const router = express.Router();
 const { getReminderLogs, getUserReminderStats, checkAndSendReminders } = require('../lib/reminder');
+const { initEmailService } = require('../lib/email');
 const { requireLibrarianAuth: librarianAuth } = require('../middleware/librarianAuth');
 
 /**
@@ -15,6 +16,9 @@ const { requireLibrarianAuth: librarianAuth } = require('../middleware/librarian
  */
 router.post('/send', librarianAuth, async (req, res) => {
   try {
+    // 确保邮件服务已初始化
+    await initEmailService();
+
     const force = req.query.force === 'true' || req.body.force === true;
     const result = await checkAndSendReminders({ force });
     return res.json({
