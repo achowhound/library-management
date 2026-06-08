@@ -61,18 +61,18 @@ function parseLoanIdFromOutTradeNo(outTradeNo) {
   return NaN;
 }
 
-async function completeReturnAfterFinePaid(loanId) {
-  const loan = await prisma.loan.findFirst({
+async function completeReturnAfterFinePaid(loanId, tx = prisma) {
+  const loan = await tx.loan.findFirst({
     where: { id: loanId, returnDate: null },
     include: { copy: { include: { book: true } }, user: true },
   });
-  if (!loan) return;
+  if (!loan) return false;
 
   const fineRatePerDay = await getFineRatePerDay();
   const returnDate = new Date();
   const returnSummary = buildReturnSummary(loan, returnDate, fineRatePerDay, { waiveFine: false });
 
-  await prisma.loan.update({
+  await tx.loan.update({
     where: { id: loanId },
     data: {
       returnDate,
@@ -82,7 +82,7 @@ async function completeReturnAfterFinePaid(loanId) {
     },
   });
 
-  await prisma.copy.update({
+  await tx.copy.update({
     where: { id: loan.copyId },
     data: { status: 'AVAILABLE' },
   });
@@ -94,6 +94,8 @@ async function completeReturnAfterFinePaid(loanId) {
     entityId: loanId,
     detail: `读者 ${loan.user.email} 支付罚款后自动还书(借阅记录 ${loanId})，罚款 ¥${returnSummary.fineAmount.toFixed(2)}`,
   });
+
+  return true;
 }
 
 async function markFineAsPaid(loanId, amount, source) {
@@ -106,12 +108,23 @@ async function markFineAsPaid(loanId, amount, source) {
     return false;
   }
 
-  await prisma.loan.update({
-    where: { id: loanId },
-    data: {
-      finePaid: true,
-      fineForgiven: false,
-    },
+  const needsReturn = !loan.returnDate;
+
+  await prisma.$transaction(async (tx) => {
+    await tx.loan.update({
+      where: { id: loanId },
+      data: {
+        finePaid: true,
+        fineForgiven: false,
+      },
+    });
+
+    if (needsReturn) {
+      const returned = await completeReturnAfterFinePaid(loanId, tx);
+      if (!returned) {
+        throw new Error(`支付后自动还书失败: 借阅记录 ${loanId}`);
+      }
+    }
   });
 
   writeAuditLog({
@@ -122,11 +135,15 @@ async function markFineAsPaid(loanId, amount, source) {
     detail: `用户通过支付宝(${source})支付了借阅记录 ${loanId} 的罚款 ¥${amount}`,
   });
 
-  if (!loan.returnDate) {
-    await completeReturnAfterFinePaid(loanId);
-  }
-
   return true;
+}
+
+async function ensureReturnAfterFinePaid(loanId) {
+  const loan = await prisma.loan.findUnique({ where: { id: loanId } });
+  if (!loan || loan.returnDate) {
+    return Boolean(loan?.returnDate);
+  }
+  return completeReturnAfterFinePaid(loanId);
 }
 
 async function handlePayFine(req, res) {
@@ -554,7 +571,8 @@ router.post('/pay-fine/sync', requireAuth, async (req, res) => {
     const bookTitle = loan.copy?.book?.title;
 
     if (loan.finePaid) {
-      return res.json({ success: true, paid: true, alreadyPaid: true, bookTitle });
+      const returned = await ensureReturnAfterFinePaid(loanId);
+      return res.json({ success: true, paid: true, alreadyPaid: true, returned, bookTitle });
     }
 
     const result = await alipaySdk.exec('alipay.trade.query', {
@@ -564,7 +582,8 @@ router.post('/pay-fine/sync', requireAuth, async (req, res) => {
     const tradeStatus = result.tradeStatus;
     if (tradeStatus === 'TRADE_SUCCESS' || tradeStatus === 'TRADE_FINISHED') {
       await markFineAsPaid(loanId, result.totalAmount || loan.fineAmount, 'sync');
-      return res.json({ success: true, paid: true, bookTitle });
+      const returned = await ensureReturnAfterFinePaid(loanId);
+      return res.json({ success: true, paid: true, returned, bookTitle });
     }
 
     return res.json({
