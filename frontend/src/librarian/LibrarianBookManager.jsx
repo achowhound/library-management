@@ -14,10 +14,9 @@ const initialForm = {
   shelfNo: 'A',
   shelfLevel: 1,
   totalCopies: 1,
-  availableCopies: 1,
 };
 
-const numericFormFields = new Set(['floor', 'shelfLevel', 'totalCopies', 'availableCopies']);
+const numericFormFields = new Set(['floor', 'shelfLevel', 'totalCopies']);
 
 function normalizeBookToForm(book) {
   return {
@@ -32,7 +31,6 @@ function normalizeBookToForm(book) {
     shelfNo: book.shelfNo || 'A',
     shelfLevel: book.shelfLevel ?? 1,
     totalCopies: book.totalCopies ?? 1,
-    availableCopies: book.availableCopies ?? 0,
   };
 }
 
@@ -64,6 +62,23 @@ function normalizeIsbn(value) {
     .replace(/[^0-9X]/g, '');
 }
 
+function buildCopyBarcodePreview(isbn) {
+  const normalizedIsbn = normalizeIsbn(isbn);
+  return normalizedIsbn ? `${normalizedIsbn} 1` : '';
+}
+
+function readFileAsBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = String(reader.result || '');
+      resolve(result.includes(',') ? result.split(',').pop() : result);
+    };
+    reader.onerror = () => reject(new Error('读取文件失败'));
+    reader.readAsDataURL(file);
+  });
+}
+
 export default function LibrarianBookManager({ librarian, onBack, onLogout }) {
   const [books, setBooks] = useState([])
   const [searchTerm, setSearchTerm] = useState('')  //搜索关键词
@@ -73,10 +88,12 @@ export default function LibrarianBookManager({ librarian, onBack, onLogout }) {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [lookupLoading, setLookupLoading] = useState(false)
+  const [importing, setImporting] = useState(false)
   const [deletingId, setDeletingId] = useState(null)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
   const isEditing = editingBookId !== null
+  const copyBarcodePreview = buildCopyBarcodePreview(form.isbn)
 
   const fetchBooks = async () => {
     setLoading(true)
@@ -183,18 +200,7 @@ export default function LibrarianBookManager({ librarian, onBack, onLogout }) {
     const { name, value } = event.target
     setForm((current) => {
       const nextValue = numericFormFields.has(name) && value !== '' ? Number(value) : value
-      const nextForm = { ...current, [name]: nextValue }
-      
-      // 当总册数变化时，确保可借册数不超过总册数
-      if (name === 'totalCopies') {
-        const total = Number(value) || 1
-        const available = Number(current.availableCopies) || 0
-        if (available > total) {
-          nextForm.availableCopies = total
-        }
-      }
-      
-      return nextForm
+      return { ...current, [name]: nextValue }
     })
   }
 
@@ -268,16 +274,6 @@ export default function LibrarianBookManager({ librarian, onBack, onLogout }) {
       return
     }
 
-    if (Number(form.availableCopies) < 0) {
-      setError('可借册数不能为负数')
-      return
-    }
-
-    if (Number(form.availableCopies) > Number(form.totalCopies)) {
-      setError('可借册数不能大于总册数')
-      return
-    }
-
     setSaving(true)
 
     try {
@@ -287,7 +283,6 @@ export default function LibrarianBookManager({ librarian, onBack, onLogout }) {
         floor: Number(form.floor) || 1,
         shelfLevel: Number(form.shelfLevel) || 1,
         totalCopies: Number(form.totalCopies) || 1,
-        availableCopies: Number(form.availableCopies) || 0,
       }
       const response = await fetch(
         isEditing
@@ -318,11 +313,15 @@ export default function LibrarianBookManager({ librarian, onBack, onLogout }) {
         if (isEditing) {
           return current.map((book) => (book.id === data.book.id ? data.book : book))
         }
-        return [...current, data.book].sort((left, right) => left.id - right.id)
+        const hasExistingBook = current.some((book) => book.id === data.book.id)
+        const nextBooks = hasExistingBook
+          ? current.map((book) => (book.id === data.book.id ? data.book : book))
+          : [...current, data.book]
+        return nextBooks.sort((left, right) => left.id - right.id)
       })
       setForm(initialForm)
       setEditingBookId(null)
-      setSuccess(isEditing ? `已更新《${data.book.title}》` : '图书新增成功')
+      setSuccess(isEditing ? `已更新《${data.book.title}》` : data.message || '图书新增成功')
     } catch (submitError) {
       setError(submitError.message || (isEditing ? '更新图书失败' : '新增图书失败'))
     } finally {
@@ -374,6 +373,60 @@ export default function LibrarianBookManager({ librarian, onBack, onLogout }) {
       setError(deleteError.message || '删除图书失败')
     } finally {
       setDeletingId(null)
+    }
+  }
+
+  const handleBatchImport = async (event) => {
+    const file = event.target.files?.[0]
+    if (!file) return
+
+    if (!/\.(xlsx|xls)$/i.test(file.name)) {
+      setError('请选择 .xlsx 或 .xls 文件')
+      event.target.value = ''
+      return
+    }
+
+    setImporting(true)
+    setError('')
+    setSuccess('')
+
+    try {
+      const token = localStorage.getItem('token')
+      const fileBase64 = await readFileAsBase64(file)
+      const response = await fetch(`${API_URL}/books/import`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          fileName: file.name,
+          fileBase64,
+        }),
+      })
+      const data = await response.json()
+
+      if (response.status === 401) {
+        handleUnauthorized()
+        return
+      }
+
+      if (!response.ok) {
+        throw new Error(data.error || '批量导入失败')
+      }
+
+      setBooks((current) => {
+        const nextBooks = new Map(current.map((book) => [book.id, book]))
+        ;(data.books || []).forEach((book) => nextBooks.set(book.id, book))
+        return Array.from(nextBooks.values()).sort((left, right) => left.id - right.id)
+      })
+      setSearchResults(null)
+      setSuccess(data.message || '批量导入成功')
+    } catch (importError) {
+      setError(importError.message || '批量导入失败')
+    } finally {
+      setImporting(false)
+      event.target.value = ''
     }
   }
 
@@ -466,7 +519,7 @@ export default function LibrarianBookManager({ librarian, onBack, onLogout }) {
                   value={form.isbn}
                   onChange={handleChange}
                   className="min-w-0 flex-1 rounded-lg border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-500"
-                  placeholder="请输入唯一 ISBN"
+                  placeholder="请输入 ISBN，同 ISBN 会作为副本追加"
                 />
                 <button
                   type="button"
@@ -478,7 +531,10 @@ export default function LibrarianBookManager({ librarian, onBack, onLogout }) {
                 </button>
               </div>
               <div className="mt-3">
-                <IsbnBarcode isbn={form.isbn} height={56} />
+                <IsbnBarcode isbn={copyBarcodePreview} height={56} />
+                <p className="mt-2 text-xs text-gray-500">
+                  副本条形码格式：ISBN + 空格 + 单本编号，例如 {copyBarcodePreview || '9787115428028 1'}
+                </p>
               </div>
             </div>
 
@@ -552,39 +608,22 @@ export default function LibrarianBookManager({ librarian, onBack, onLogout }) {
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
-  <div>
-    <label className="block text-sm font-semibold text-gray-700 mb-2">
-      总册数 {!isEditing && <span className="text-red-500">*</span>}
-    </label>
-    <input
-      name="totalCopies"
-      type="number"
-      min="1"
-      value={form.totalCopies}
-      onChange={handleChange}
-      className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-500"
-    />
-  </div>
-  <div>
-    <label className="block text-sm font-semibold text-gray-700 mb-2">
-      可借册数
-    </label>
-    <input
-      name="availableCopies"
-      type="number"
-      min="0"
-      max={form.totalCopies}
-      value={form.availableCopies}
-      onChange={handleChange}
-      disabled={isEditing}
-      className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-500 disabled:bg-gray-100 disabled:text-gray-500"
-    />
-    {isEditing && (
-      <p className="text-xs text-gray-500 mt-1">由系统自动计算</p>
-    )}
-  </div>
-</div>
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 mb-2">
+                {isEditing ? '目标总册数' : '新增副本数'} {!isEditing && <span className="text-red-500">*</span>}
+              </label>
+              <input
+                name="totalCopies"
+                type="number"
+                min="1"
+                value={form.totalCopies}
+                onChange={handleChange}
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-500"
+              />
+              <p className="mt-1 text-xs text-gray-500">
+                新增时如果 ISBN 已存在，系统会自动追加副本并继续编号；可借册数由副本状态自动统计。
+              </p>
+            </div>
 
             <div>
               <label className="block text-sm font-semibold text-gray-700 mb-2">描述</label>
@@ -628,6 +667,25 @@ export default function LibrarianBookManager({ librarian, onBack, onLogout }) {
               </button>
             </div>
           </form>
+
+          {!isEditing && (
+            <div className="mt-6 rounded-xl border border-dashed border-blue-200 bg-blue-50/60 p-4">
+              <h3 className="font-semibold text-gray-800">批量添加图书</h3>
+              <p className="mt-1 text-sm text-gray-600">
+                导入 .xlsx 文件，列名可使用：书名、作者、ISBN、分类、描述、语言、楼层、区域、书架号、层数、总册数。
+              </p>
+              <label className="mt-3 inline-flex cursor-pointer items-center rounded-lg bg-blue-500 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-600 transition">
+                {importing ? '导入中...' : '选择 Excel 并导入'}
+                <input
+                  type="file"
+                  accept=".xlsx,.xls"
+                  onChange={handleBatchImport}
+                  disabled={importing || saving}
+                  className="hidden"
+                />
+              </label>
+            </div>
+          )}
         </section>
 
         <section className="bg-white rounded-2xl shadow-lg p-6">
@@ -646,7 +704,7 @@ export default function LibrarianBookManager({ librarian, onBack, onLogout }) {
                 value={searchTerm}
                 onChange={handleSearchChange}
                 onKeyPress={(e) => e.key === 'Enter' && handleSearch()}
-                placeholder="按书名、作者或ISBN搜索..."
+                placeholder="按书名、作者、ISBN或条形码搜索..."
                 className="w-64 px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
               <button
@@ -689,7 +747,10 @@ export default function LibrarianBookManager({ librarian, onBack, onLogout }) {
                         作者：{book.author} | ISBN：{book.isbn}
                       </p>
                       <div className="mb-3 max-w-xs">
-                        <IsbnBarcode isbn={book.isbn} height={48} />
+                        <IsbnBarcode isbn={book.copies?.[0]?.barcode || `${book.isbn} 1`} height={48} />
+                        <p className="mt-1 text-xs text-gray-500">
+                          首个副本条形码：{book.copies?.[0]?.barcode || `${book.isbn} 1`}
+                        </p>
                       </div>
                       <p className="text-sm text-gray-600 mb-2">
                         语言：{book.language || '暂无'}
@@ -700,6 +761,23 @@ export default function LibrarianBookManager({ librarian, onBack, onLogout }) {
                       <p className="text-sm text-gray-600 mb-2">
                         副本数：{book.totalCopies ?? 0} / 可借：{book.availableCopies ?? 0}
                       </p>
+                      {book.copies?.length > 0 && (
+                        <div className="mb-3 flex flex-wrap gap-2">
+                          {book.copies.slice(0, 6).map((copy) => (
+                            <span
+                              key={copy.id}
+                              className="rounded-full border border-gray-200 bg-gray-50 px-2 py-1 text-xs text-gray-600"
+                            >
+                              {copy.barcode} · {copy.status}
+                            </span>
+                          ))}
+                          {book.copies.length > 6 && (
+                            <span className="rounded-full bg-gray-100 px-2 py-1 text-xs text-gray-500">
+                              +{book.copies.length - 6} 个副本
+                            </span>
+                          )}
+                        </div>
+                      )}
                       <p className="text-sm text-gray-500 mb-3">
                         创建时间：{formatDate(book.createdAt)}
                       </p>
