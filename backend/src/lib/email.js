@@ -60,17 +60,11 @@ async function sendDueReminderEmail({
   bookTitle,
   dueDate,
 }) {
-  // 如果邮件服务未初始化，尝试重新初始化
-  if (!transporter) {
-    console.log('🔄 邮件服务未初始化，正在尝试重新初始化...');
-    await initEmailService();
-  }
-
-  // 如果仍然未初始化，返回失败
+  // 如果邮件服务未初始化，返回失败
   if (!transporter) {
     return {
       success: false,
-      error: '邮件服务未初始化，请检查 SMTP 配置',
+      error: '邮件服务未初始化',
     };
   }
 

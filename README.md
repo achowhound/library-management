@@ -69,7 +69,7 @@ cd library-management-system
 ```bash
 cd frontend
 npm install          # 安装依赖
-npm run dev         # 启动开发服务器
+npm run dev          # 启动开发服务器
 ```
 访问 http://localhost:5173
 
